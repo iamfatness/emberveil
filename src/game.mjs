@@ -37,6 +37,21 @@ export function player(name, key, leader='tala') {
 }
 export const MAX_PLAYERS = 6;
 export const modes={ffa:'Free-for-all',teams:'Team PvP',coop:'Co-op vs bots'};
+export const lore={
+  leaders:{
+    tala:'Tala rode the last evacuation road until the stones caught fire. She has never forgiven the citadel for closing its gates.',
+    vael:'Vael still keeps the names of the people he promised to shelter. Each is etched inside his shield.',
+    neri:'Neri learned to read the veil by listening to voices the city had written out of its history.',
+    sylva:'Sylva planted her first briar in the ash of a burned orchard. Its roots now reach the citadel walls.',
+    orrun:'Orrun cast the first Sentinel hinges. When the machines forgot whom they served, he took up his hammer again.',
+    iskar:'Iskar saw the eclipse reflected in the harbor a year before it came. The tide has been late ever since.'
+  },
+  coop:{title:'The Watch Beneath the Ash',intro:'On the night of the eclipse, the city hid its people beneath the citadel. The Sentinels sealed the vault while the Dawnward held the refugees in enchanted sleep. A century later, the ward is failing and the watch still refuses to open the doors.'},
+  teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
+  ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
+};
+export const wardCost=2;
+export const wardMarks=3;
 export const allies=(game,a,b)=>a===b||game.mode&&game.mode!=='ffa'&&game.players[a].team===game.players[b].team;
 export const humanLimit=game=>game.mode==='coop'?MAX_PLAYERS-game.botCount:MAX_PLAYERS;
 export const readyToStart=game=>game.mode==='coop'||(game.mode==='teams'
@@ -64,6 +79,7 @@ export const hasStarted = game => game.started ?? game.players.length >= 2;
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
   game.last=message;
+  if(game.story && game.players[seat].bot) game.story.sentinelsFallen++;
   const remaining=game.players.flatMap((p,i)=>p.eliminated?[]:[i]);
   if(remaining.length && remaining.every(i=>allies(game,i,remaining[0]))) game.winner=remaining[0];
 }
@@ -265,6 +281,7 @@ export function act(game, seat, data){
       }
     }
     game.started=true;
+    if(game.chapter) game.story={marks:0,sentinelsFallen:0,channelTurn:0};
     beginTurn(game);
     return;
   }
@@ -289,6 +306,22 @@ export function act(game, seat, data){
   if(data.type==='end'){
     game.last='';
     endTurn(game);
+    return;
+  }
+  if(data.type==='rekindle'){
+    const story=game.story;
+    if(!story||p.bot||story.marks>=wardMarks||story.channelTurn===game.round) throw Error('The ward cannot be rekindled this turn.');
+    if(p.mana<wardCost) throw Error('Rekindling costs '+wardCost+' mana.');
+    p.mana-=wardCost;
+    story.channelTurn=game.round;
+    story.marks++;
+    if(story.marks===wardMarks){
+      for(const ally of game.players){
+        if(!ally.bot&&!ally.eliminated) ally.life=Math.min(20,ally.life+3);
+      }
+      game.effect={type:'heal',seat};
+      game.last='The Dawnward is restored. Living allies recover up to 3 life.';
+    }else game.last=p.name+' restored a mark of the Dawnward.';
     return;
   }
   if(data.type==='summon'){
@@ -413,7 +446,7 @@ export function view(game, seat, revision){
   const combat=game.combat;
   const visibleCombat=combat&&{id:combat.id,strikes:combat.strikes,attacker:combat.attacker,defender:combat.defender,unit:combat.unit,blocker:combat.blocker,
     phase:combat.phase,deadline:combat.deadline,canReact:combat.strikes?combat.queue?.includes(seat):combat.queue?.[0]===seat,boost:combat.boost,shield:combat.shield};
-  return {revision,seat,mode:game.mode,botCount:game.botCount,turnDeadline:game.turnDeadline,turnSeconds:game.turnSeconds,attacked:game.attacked,readyToStart:readyToStart(game),humanLimit:humanLimit(game),rules:game.rules,combat:visibleCombat,effect:game.effect,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
+  return {revision,seat,chapter:game.chapter,story:game.story,mode:game.mode,botCount:game.botCount,turnDeadline:game.turnDeadline,turnSeconds:game.turnSeconds,attacked:game.attacked,readyToStart:readyToStart(game),humanLimit:humanLimit(game),rules:game.rules,combat:visibleCombat,effect:game.effect,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
     players:game.players.map((p,i)=>({name:p.name,team:p.team,bot:p.bot,redrawn:p.redrawn,life:p.life,mana:p.mana,max:p.max,leader:p.leader,leaderCost:p.leader?cards[p.leader].cost+p.leaderCasts:undefined,eliminated:!!p.eliminated,board:p.board,
       hand:i===seat?p.hand:undefined,handSize:p.hand.length,deckSize:p.deck.length}))};
 }

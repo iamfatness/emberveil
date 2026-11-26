@@ -53,3 +53,13 @@ body:has(#arena:not([hidden])){background:#13100f url('/art/arena.webp') center 
 .combat-grid{display:grid;gap:8px;margin:.65rem 0}
 .combat-row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .combat-row select{max-width:100%}
+.story-toggle{display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem}
+.story-toggle input{width:auto;min-height:0;margin:0;accent-color:var(--gold)}
+#arena .story{border-color:#8d673c;background:linear-gradient(110deg,#302316ec,#16110ded);margin-bottom:.75rem;text-align:left}
+.story h2{font-family:Cinzel,Georgia,serif;font-size:1.15rem;margin:0 0 .35rem;color:var(--gold)}
+.story p{max-width:75ch;margin:.35rem 0 .6rem;color:var(--muted)}
+.story small{display:block;margin-top:.4rem;color:var(--muted)}
+.ward-progress{display:flex;align-items:center;gap:.65rem;margin-bottom:.6rem}
+.ward-progress progress{accent-color:var(--gold)}
+.deck-detail summary{cursor:pointer;color:var(--gold);margin-top:.25rem}
+.deck-detail details p{margin:.3rem 0}

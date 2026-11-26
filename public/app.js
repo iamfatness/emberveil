@@ -1,4 +1,4 @@
-import {cards,leaders,MAX_PLAYERS,modes} from '/game.mjs';
+import {cards,leaders,MAX_PLAYERS,modes,lore,wardCost,wardMarks} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -18,7 +18,7 @@ for(const id of ['host-leader','guest-leader']){
   $(id).after(detail);
   const describe=()=>{
     const kind=$(id).value;
-    detail.innerHTML=portrait(kind)+'<span>'+leaders[kind].text+'</span>';
+    detail.innerHTML=portrait(kind)+'<span>'+leaders[kind].text+'<details><summary>Leader story</summary><p>'+lore.leaders[kind]+'</p></details></span>';
   };
   $(id).addEventListener('change',describe);
   describe();
@@ -54,6 +54,41 @@ function card(unit,zone,enabled,opponent){
   const detail=inHand?(info.damage?'Deal 3 damage':info.heal?'Heal 4 life':info.text??info.power+' / '+info.hp):info.power+' / '+unit.hp;
   return `<button class="card" data-kind="${unit.kind}" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id||attackIds.includes(unit.id)}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="card-art">${portrait(unit.kind)}${inHand?`<b class="mana-cost" aria-label="${info.cost} mana">${info.cost}</b>`:''}</span><span class="card-detail">${detail}${!inHand&&(unit.frozen||unit.freezeTurn)?' · Frozen':zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
 }
+function storyPanel(active=false){
+  const story=game.story;
+  const scene=game.chapter?lore.coop:lore[game.mode==='coop'?'':game.mode];
+  if(!scene) return '';
+  let passage=scene.intro;
+  let heading=scene.title;
+  let objective='';
+  if(game.started && game.winner!==null){
+    if(game.mode==='coop'){
+      const lost=game.players[game.winner].bot;
+      heading=lost?'The Doors Remain Sealed':story.marks===wardMarks?'The First Light':'The Watch Falls';
+      passage=lost?'The last Sentinel returns to its post. Beneath the vault, the rescue bells fall silent.':
+        story.marks===wardMarks?'The restored Dawnward lights a path through the opened vault. The first people to climb out see a sky they know only from stories.':
+        'The vault opens in darkness. The rescuers pass a single lantern hand to hand until everyone reaches the stairs.';
+    }else{
+      heading=game.mode==='teams'?'A House Holds the Keys':'A Claim Is Settled';
+      passage=game.mode==='teams'?'At dawn, the surviving house takes custody of the citadel. Its first decree will decide whether the old gates open again.':'The last claimant leaves the basalt court with the keeper’s seal. By morning, the city will ask what they intend to do with it.';
+    }
+  }else if(story){
+    if(story.marks===wardMarks){
+      heading='The Dawnward Burns Again';
+      passage='Warm light spills from the vault. The Dawnward has healed the living allies. Defeat the remaining Sentinels to open the doors.';
+    }else{
+      if(story.sentinelsFallen){
+        heading='A Voice Behind the Door';
+        passage='As a Sentinel falls, a voice calls through the stone. “We can hear you. Can you light the stair?”';
+      }
+      const canChannel=active&&story.channelTurn!==game.round&&game.players[game.seat].mana>=wardCost;
+      objective=`<p>Optional objective · Restore three marks to heal each surviving ally for up to 3 life.</p><div class="ward-progress"><progress value="${story.marks}" max="${wardMarks}" aria-label="Dawnward marks restored"></progress><strong>${story.marks} / ${wardMarks} marks</strong></div><button class="outline" data-action="rekindle" ${canChannel?'':'disabled'}>Rekindle a mark · ${wardCost} mana</button><small>Once per turn. Defeat the Sentinels to win.</small>`;
+    }
+  }else if(game.chapter){
+    passage+=' Defeat the Sentinels to open the vault. Spend mana during your turns to optionally restore the Dawnward.';
+  }
+  return `<section class="field story" aria-label="Match story"><h2>${heading}</h2><p>${passage}</p>${objective}</section>`;
+}
 function render(){
   if(!game) return;
   lobby.hidden=true;
@@ -63,7 +98,7 @@ function render(){
     const roster=game.players.map((p,i)=>`<li>${escape(p.name)}${game.mode&&game.mode!=='ffa'?' · '+teamName(game.mode,p.team):''}${p.leader?' · '+cards[p.leader].name:''}${i===0?' · Host':''}${i===game.seat?' · You':''}</li>`).join('');
     const requirements=game.mode==='teams'?'Team PvP starts with four or six players. Teams alternate by join order.':game.mode==='coop'?`This match includes ${game.botCount} Sentinel bots.`:'At least two players are needed.';
     const opening=game.rules>=3?`<h2>Opening hand</h2><div class="cards">${mine.hand.map(unit=>card(unit,'hand',false)).join('')}</div><button class="outline" data-action="redraw" ${mine.redrawn||busy?'disabled':''}>${mine.redrawn?'Opening hand redrawn':'Redraw opening hand once'}</button>`:'';
-    arena.innerHTML=`<section class="panel waiting"><h1>${modes[game.mode]||'Match lobby'}</h1><p>Share your invite link or room code with friends.</p><strong class="code">${room}</strong><div class="actions"><button class="outline" data-action="copy">Copy invite link</button>${game.seat===0?`<button class="gold" data-action="start" ${game.readyToStart&&!busy?'':'disabled'}>Start match</button>`:''}</div><h2>${game.players.length} of ${game.humanLimit||MAX_PLAYERS} player seats</h2><ol class="roster">${roster}</ol><p id="status" role="status">${escape(error||(game.seat!==0?'Waiting for the host to start.':!game.readyToStart||game.mode==='coop'?requirements:''))}</p>${opening}<a href="/">Back to lobby</a></section>`;
+    arena.innerHTML=`<section class="panel waiting"><h1>${modes[game.mode]||'Match lobby'}</h1><p>Share your invite link or room code with friends.</p><strong class="code">${room}</strong><div class="actions"><button class="outline" data-action="copy">Copy invite link</button>${game.seat===0?`<button class="gold" data-action="start" ${game.readyToStart&&!busy?'':'disabled'}>Start match</button>`:''}</div><h2>${game.players.length} of ${game.humanLimit||MAX_PLAYERS} player seats</h2><ol class="roster">${roster}</ol><p id="status" role="status">${escape(error||(game.seat!==0?'Waiting for the host to start.':!game.readyToStart||game.mode==='coop'?requirements:''))}</p>${storyPanel()}${opening}<a href="/">Back to lobby</a></section>`;
     return;
   }
   const mine=game.players[game.seat];
@@ -95,7 +130,7 @@ function render(){
   const leave=outcome||mine.eliminated;
   arena.innerHTML=`<div class="bar"><h1>Battlefield</h1>${game.turnDeadline&&!combat&&!outcome?'<span id="turn-clock"></span>':''}<button class="quiet" data-action="${leave?'leave':'concede'}" ${busy?'disabled':''}>${leave?'Back to lobby':'Concede'}</button></div>
   <p id="status" role="status">${escape(error||outcome||(mine.eliminated?'You’re eliminated. '+prompt:prompt))} ${game.last&&!error?' · '+escape(game.last):''}</p>
-  ${combatPanel}<div class="opponents">${opponents}</div>
+  ${combatPanel}${storyPanel(active)}<div class="opponents">${opponents}</div>
   <section data-seat="${game.seat}" class="field player-field ${active?'current-turn':''}" aria-label="Your battlefield"><div class="stats">${stats(mine,game.seat)}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div><div class="cards">${mine.board.map(unit=>card(unit,blocking&&!combat.strikes?'block':'mine',blocking&&!combat.strikes?!unit.exhausted:active&&unit.ready&&!game.attacked)).join('')||'<span>No creatures in play</span>'}</div></section>
   ${leaderPanel}<section class="field" aria-label="Your hand"><strong>Your hand</strong><div class="cards">${mine.hand.map(unit=>card(unit,cards[unit.kind].reaction?'reaction':'hand',(cards[unit.kind].reaction?reacting:active)&&cards[unit.kind].cost<=mine.mana)).join('')||'<span>Your hand is empty</span>'}</div></section>`;
 }
@@ -113,7 +148,7 @@ async function enterFromForm(event,create){
   try{
     const code=create?'CREATE':$('guest-code').value.trim().toUpperCase();
     if(!create&&!/^[A-F0-9]{8}$/.test(code)) throw Error('Enter the eight-character room code.');
-    enter(await api(code,{type:create?'create':'join',mode:$('host-mode').value,botCount:Number($('host-bots').value),turnSeconds:Number($('host-timer').value),name:$(create?'host-name':'guest-name').value,leader:$(create?'host-leader':'guest-leader').value}));
+    enter(await api(code,{type:create?'create':'join',mode:$('host-mode').value,botCount:Number($('host-bots').value),chapter:$('host-chapter').checked,turnSeconds:Number($('host-timer').value),name:$(create?'host-name':'guest-name').value,leader:$(create?'host-leader':'guest-leader').value}));
   }catch(reason){$('lobby-error').textContent=reason.message;}
   finally{button.disabled=false;}
 }
@@ -142,6 +177,7 @@ arena.onclick=async event=>{
     catch{$('status').textContent='Share the URL from your address bar.';}
   }
   if(action==='leave') location.href='/';
+  if(action==='rekindle') await move({type:'rekindle'});
   if(action==='redraw') await move({type:'redraw'});
   if(action==='blocks'){
     const blocks=[...arena.querySelectorAll('[data-strike]')].filter(select=>select.value)

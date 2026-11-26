@@ -47,7 +47,7 @@ export async function api(request, db){
       const mode=Object.hasOwn(modes,input.mode)?input.mode:'ffa';
       const botCount=mode==='coop'&&[1,2,3].includes(input.botCount)?input.botCount:mode==='coop'?2:0;
       const turnSeconds=[60,90,120].includes(input.turnSeconds)?input.turnSeconds:90;
-      const game={players:[{...player(name||'Player 1',key,leader),team:0}],mode,botCount,turnSeconds,rules:3,started:false,active:0,round:1,winner:null,last:''};
+      const game={players:[{...player(name||'Player 1',key,leader),team:0}],mode,chapter:mode==='coop'&&input.chapter===true,botCount,turnSeconds,rules:3,started:false,active:0,round:1,winner:null,last:''};
       const id=crypto.randomUUID().slice(0,8).toUpperCase();
       await db.prepare('INSERT INTO rooms (code,state) VALUES (?,?)').bind(id,JSON.stringify(game)).run();
       return response({...view(game,0,0),code:id});
