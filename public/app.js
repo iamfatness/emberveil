@@ -1,9 +1,13 @@
-import {cards,leaders,MAX_PLAYERS} from '/game.mjs';
+import {cards,leaders,MAX_PLAYERS,modes} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
 const requested=new URL(location.href).searchParams.get('room')?.toUpperCase()||'';
 let room='',game,selected,error='',busy=false,refreshing=false;
+let attackIds=[],reactionTarget='';
+$('host-mode').onchange=()=>{$('bot-settings').hidden=$('host-mode').value!=='coop';};
+const teamName=(mode,team)=>mode==='coop'?(team===1?'Sentinels':'Adventurers'):(team===1?'Moon team':'Sun team');
+const sameSide=(a,b)=>game.mode&&game.mode!=='ffa'&&a.team===b.team;
 $('guest-code').value=requested;
 $('rules').onclick=()=>$('guide').showModal();
 
@@ -48,16 +52,18 @@ function card(unit,zone,enabled,opponent){
   const info=cards[unit.kind];
   const inHand=zone==='hand'||zone==='reaction';
   const detail=inHand?(info.damage?'Deal 3 damage':info.heal?'Heal 4 life':info.text??info.power+' / '+info.hp):info.power+' / '+unit.hp;
-  return `<button class="card" data-kind="${unit.kind}" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="card-art">${portrait(unit.kind)}${inHand?`<b class="mana-cost" aria-label="${info.cost} mana">${info.cost}</b>`:''}</span><span class="card-detail">${detail}${!inHand&&(unit.frozen||unit.freezeTurn)?' · Frozen':zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
+  return `<button class="card" data-kind="${unit.kind}" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id||attackIds.includes(unit.id)}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="card-art">${portrait(unit.kind)}${inHand?`<b class="mana-cost" aria-label="${info.cost} mana">${info.cost}</b>`:''}</span><span class="card-detail">${detail}${!inHand&&(unit.frozen||unit.freezeTurn)?' · Frozen':zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
 }
 function render(){
   if(!game) return;
   lobby.hidden=true;
   arena.hidden=false;
   if(!game.started){
-    const roster=game.players.map((p,i)=>`<li>${escape(p.name)}${p.leader?' · '+cards[p.leader].name:''}${i===0?' · Host':''}${i===game.seat?' · You':''}</li>`).join('');
-    const ready=game.players.length>=2;
-    arena.innerHTML=`<section class="panel waiting"><h1>Match lobby</h1><p>Share your invite link or room code with friends.</p><strong class="code">${room}</strong><div class="actions"><button class="outline" data-action="copy">Copy invite link</button>${game.seat===0?`<button class="gold" data-action="start" ${ready&&!busy?'':'disabled'}>Start match</button>`:''}</div><h2>${game.players.length} of ${MAX_PLAYERS} players</h2><ol class="roster">${roster}</ol><p id="status" role="status">${escape(error||(game.seat!==0?'Waiting for the host to start.':!ready?'At least two players are needed.':''))}</p><a href="/">Back to lobby</a></section>`;
+    const mine=game.players[game.seat];
+    const roster=game.players.map((p,i)=>`<li>${escape(p.name)}${game.mode&&game.mode!=='ffa'?' · '+teamName(game.mode,p.team):''}${p.leader?' · '+cards[p.leader].name:''}${i===0?' · Host':''}${i===game.seat?' · You':''}</li>`).join('');
+    const requirements=game.mode==='teams'?'Team PvP starts with four or six players. Teams alternate by join order.':game.mode==='coop'?`This match includes ${game.botCount} Sentinel bots.`:'At least two players are needed.';
+    const opening=game.rules>=3?`<h2>Opening hand</h2><div class="cards">${mine.hand.map(unit=>card(unit,'hand',false)).join('')}</div><button class="outline" data-action="redraw" ${mine.redrawn||busy?'disabled':''}>${mine.redrawn?'Opening hand redrawn':'Redraw opening hand once'}</button>`:'';
+    arena.innerHTML=`<section class="panel waiting"><h1>${modes[game.mode]||'Match lobby'}</h1><p>Share your invite link or room code with friends.</p><strong class="code">${room}</strong><div class="actions"><button class="outline" data-action="copy">Copy invite link</button>${game.seat===0?`<button class="gold" data-action="start" ${game.readyToStart&&!busy?'':'disabled'}>Start match</button>`:''}</div><h2>${game.players.length} of ${game.humanLimit||MAX_PLAYERS} player seats</h2><ol class="roster">${roster}</ol><p id="status" role="status">${escape(error||(game.seat!==0?'Waiting for the host to start.':!game.readyToStart||game.mode==='coop'?requirements:''))}</p>${opening}<a href="/">Back to lobby</a></section>`;
     return;
   }
   const mine=game.players[game.seat];
@@ -65,24 +71,32 @@ function render(){
   const blocking=combat?.phase==='block'&&combat.defender===game.seat&&!busy;
   const reacting=combat?.phase==='react'&&combat.canReact&&!busy;
   const active=game.active===game.seat && game.winner===null && !busy && !mine.eliminated && !combat;
-  const outcome=game.winner===null?'':game.winner===game.seat?'You won!':game.players[game.winner].name+' won.';
-  const prompt=selected?.creatureOnly?'Choose an opposing creature.':selected?'Choose an opposing target.':game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
+  const winner=game.players[game.winner];
+  const outcome=game.winner===null?'':sameSide(mine,winner)?'Your team won!':game.mode&&game.mode!=='ffa'?teamName(game.mode,winner.team)+' won.':game.winner===game.seat?'You won!':winner.name+' won.';
+  const prompt=attackIds.length?`Choose an opponent for ${attackIds.length} attacker${attackIds.length===1?'':'s'}.`:selected?.creatureOnly?'Choose an opposing creature.':selected?'Choose an opposing target.':game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
   const attacker=combat&&game.players[combat.attacker];
   const defender=combat&&game.players[combat.defender];
   const attackingCard=combat&&attacker.board.find(unit=>unit.id===combat.unit);
-  const combatPanel=combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Waiting for combat reactions.'} <span id="combat-clock"></span></p>${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'';
+  const batchRows=combat?.strikes?.map((strike,i)=>{
+    const name=cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name;
+    const blocker=defender.board.find(unit=>unit.id===strike.blocker);
+    const options=blocking?mine.board.filter(unit=>!unit.exhausted).map(unit=>`<option value="${unit.id}">${cards[unit.kind].name} · ${cards[unit.kind].power} / ${unit.hp}</option>`).join(''):'';
+    return `<div class="combat-row"><label for="strike-${i}">${i+1}. ${name} ${strike.boost?' +'+strike.boost+' power':''}${strike.shield?' · '+strike.shield+' shield':''}</label>${blocking?`<select id="strike-${i}" data-strike="${strike.unit}"><option value="">Unblocked</option>${options}</select>`:blocker?`<span>Blocked by ${cards[blocker.kind].name}</span>`:'<span>Unblocked</span>'}</div>`;
+  }).join('');
+  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Waiting for reactions.'} <span id="combat-clock"></span></p><div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
+  const combatPanel=batchPanel||(combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Waiting for combat reactions.'} <span id="combat-clock"></span></p>${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'');
   const leaderPanel=mine.leader?`<section class="field leader"><div class="leader-art">${portrait(mine.leader)}</div><div><h2>Leader zone</h2><p>${cards[mine.leader].name} · ${leaders[mine.leader].style} · ${cards[mine.leader].power} / ${cards[mine.leader].hp}</p>${cards[mine.leader].text?`<p>${cards[mine.leader].text}</p>`:''}<button class="outline" data-action="summon" ${active&&mine.mana>=mine.leaderCost&&!mine.board.some(unit=>unit.kind===mine.leader)?'':'disabled'}>Summon leader · ${mine.leaderCost} mana</button></div></section>`:'';
-  const stats=(p,i)=>`<strong class="player-name">${p.leader?portrait(p.leader):''}${escape(p.name)}${i===game.seat?' · You':''}</strong><span>${p.eliminated?'Eliminated':game.winner===null&&game.active===i?'Taking turn':''}</span><span>♥ ${Math.max(0,p.life)} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span>`;
+  const stats=(p,i)=>`<strong class="player-name">${p.leader?portrait(p.leader):''}${escape(p.name)}${i===game.seat?' · You':''}</strong><span>${game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team)+(p.bot?' · Bot':''):''}</span><span>${p.eliminated?'Eliminated':game.winner===null&&game.active===i?'Taking turn':''}</span><span>♥ ${Math.max(0,p.life)} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span>`;
   const opponents=game.players.map((p,i)=>{
     if(i===game.seat) return '';
-    const enabled=active&&selected&&!p.eliminated;
-    return `<section data-seat="${i}" class="field player-field ${game.active===i&&!outcome?'current-turn':''} ${p.eliminated?'eliminated':''}" aria-label="${escape(p.name)}’s battlefield"><div class="stats">${stats(p,i)}<button class="outline enemy-target" data-action="hero" data-opponent="${i}" ${enabled&&((game.rules===2||selected.type==='play'||!p.board.length)&&!selected.creatureOnly)?'':'disabled'}>Target player</button></div><div class="cards">${p.eliminated?'Out of the match':p.board.map(unit=>card(unit,'enemy',enabled&&(game.rules!==2||selected.type==='play'),i)).join('')||'<span>No creatures in play</span>'}</div></section>`;
+    const enabled=active&&(selected||attackIds.length)&&!p.eliminated&&!sameSide(mine,p);
+    return `<section data-seat="${i}" class="field player-field ${game.active===i&&!outcome?'current-turn':''} ${p.eliminated?'eliminated':''}" aria-label="${escape(p.name)}’s battlefield"><div class="stats">${stats(p,i)}<button class="outline enemy-target" data-action="hero" data-opponent="${i}" ${enabled&&(attackIds.length||((game.rules>=2||selected?.type==='play'||!p.board.length)&&!selected?.creatureOnly))?'':'disabled'}>${attackIds.length?'Attack player':'Target player'}</button></div><div class="cards">${p.eliminated?'Out of the match':p.board.map(unit=>card(unit,'enemy',enabled&&(game.rules<2||selected?.type==='play'),i)).join('')||'<span>No creatures in play</span>'}</div></section>`;
   }).join('');
   const leave=outcome||mine.eliminated;
-  arena.innerHTML=`<div class="bar"><h1>Battlefield</h1><button class="quiet" data-action="${leave?'leave':'concede'}" ${busy?'disabled':''}>${leave?'Back to lobby':'Concede'}</button></div>
+  arena.innerHTML=`<div class="bar"><h1>Battlefield</h1>${game.turnDeadline&&!combat&&!outcome?'<span id="turn-clock"></span>':''}<button class="quiet" data-action="${leave?'leave':'concede'}" ${busy?'disabled':''}>${leave?'Back to lobby':'Concede'}</button></div>
   <p id="status" role="status">${escape(error||outcome||(mine.eliminated?'You’re eliminated. '+prompt:prompt))} ${game.last&&!error?' · '+escape(game.last):''}</p>
   ${combatPanel}<div class="opponents">${opponents}</div>
-  <section data-seat="${game.seat}" class="field player-field ${active?'current-turn':''}" aria-label="Your battlefield"><div class="stats">${stats(mine,game.seat)}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div><div class="cards">${mine.board.map(unit=>card(unit,blocking?'block':'mine',blocking?!unit.exhausted:active&&unit.ready)).join('')||'<span>No creatures in play</span>'}</div></section>
+  <section data-seat="${game.seat}" class="field player-field ${active?'current-turn':''}" aria-label="Your battlefield"><div class="stats">${stats(mine,game.seat)}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div><div class="cards">${mine.board.map(unit=>card(unit,blocking&&!combat.strikes?'block':'mine',blocking&&!combat.strikes?!unit.exhausted:active&&unit.ready&&!game.attacked)).join('')||'<span>No creatures in play</span>'}</div></section>
   ${leaderPanel}<section class="field" aria-label="Your hand"><strong>Your hand</strong><div class="cards">${mine.hand.map(unit=>card(unit,cards[unit.kind].reaction?'reaction':'hand',(cards[unit.kind].reaction?reacting:active)&&cards[unit.kind].cost<=mine.mana)).join('')||'<span>Your hand is empty</span>'}</div></section>`;
 }
 function enter(state){
@@ -99,7 +113,7 @@ async function enterFromForm(event,create){
   try{
     const code=create?'CREATE':$('guest-code').value.trim().toUpperCase();
     if(!create&&!/^[A-F0-9]{8}$/.test(code)) throw Error('Enter the eight-character room code.');
-    enter(await api(code,{type:create?'create':'join',name:$(create?'host-name':'guest-name').value,leader:$(create?'host-leader':'guest-leader').value}));
+    enter(await api(code,{type:create?'create':'join',mode:$('host-mode').value,botCount:Number($('host-bots').value),turnSeconds:Number($('host-timer').value),name:$(create?'host-name':'guest-name').value,leader:$(create?'host-leader':'guest-leader').value}));
   }catch(reason){$('lobby-error').textContent=reason.message;}
   finally{button.disabled=false;}
 }
@@ -110,10 +124,11 @@ async function move(data){
   if(busy) return;
   busy=true;
   error='';
-  render();
   try{
     game=await api(room,{...data,revision:game.revision});
     selected=undefined;
+    attackIds=[];
+    if(!game.combat) reactionTarget='';
   }catch(reason){error=reason.message;return;}
   finally{busy=false;render();}
   animateEffect();
@@ -127,16 +142,35 @@ arena.onclick=async event=>{
     catch{$('status').textContent='Share the URL from your address bar.';}
   }
   if(action==='leave') location.href='/';
+  if(action==='redraw') await move({type:'redraw'});
+  if(action==='blocks'){
+    const blocks=[...arena.querySelectorAll('[data-strike]')].filter(select=>select.value)
+      .map(select=>({attacker:select.dataset.strike,blocker:select.value}));
+    if(new Set(blocks.map(block=>block.blocker)).size!==blocks.length){
+      $('status').textContent='Assign each blocker only once.';
+      return;
+    }
+    await move({type:'blocks',blocks});
+  }
   if(action==='start') await move({type:'start'});
   if(action==='summon') await move({type:'summon'});
-  if(action==='pass') await move({type:'pass'});
+  if(action==='pass') await move({type:'pass',combatId:game.combat?.id});
   if(action==='no-block'||zone==='block') await move({type:'block',id});
-  if(zone==='reaction') await move({type:'react',id});
+  if(zone==='reaction') await move({type:'react',id,strike:$('reaction-target')?.value,combatId:game.combat?.id});
   if(action==='end') await move({type:'end'});
   if(action==='concede' && confirm('Concede this match?')) await move({type:'concede'});
+  if(action==='hero' && attackIds.length){await move({type:'attack-batch',ids:attackIds,opponent:Number(opponent)});return;}
   if(action==='hero' && selected) await move({...selected,target:'hero',opponent:Number(opponent)});
   if(zone==='enemy' && selected) await move({...selected,target:id,opponent:Number(opponent)});
+  if(zone==='mine'&&game.rules>=3){
+    selected=undefined;
+    attackIds=attackIds.includes(id)?attackIds.filter(unit=>unit!==id):[...attackIds,id];
+    error='';
+    render();
+    return;
+  }
   if(zone==='mine' || zone==='hand'){
+    attackIds=[];
     const type=zone==='mine'?'attack':'play';
     const item=game.players[game.seat].hand.find(unit=>unit.id===id);
     if(zone==='hand' && !cards[item.kind].damage && !cards[item.kind].freeze) await move({type,id});
@@ -147,7 +181,10 @@ arena.onclick=async event=>{
     }
   }
 };
+arena.onchange=event=>{if(event.target.id==='reaction-target') reactionTarget=event.target.value;};
 function updateClock(){
+  const turn=$('turn-clock');
+  if(turn&&game?.turnDeadline) turn.textContent='Turn time · '+Math.max(0,Math.ceil((game.turnDeadline-Date.now())/1000))+'s';
   const clock=$('combat-clock');
   if(clock&&game?.combat) clock.textContent=Math.max(0,Math.ceil((game.combat.deadline-Date.now())/1000))+'s';
 }
@@ -160,6 +197,8 @@ setInterval(async ()=>{
     if(!busy&&next.revision>game.revision){
       game=next;
       selected=undefined;
+      attackIds=[];
+      if(!game.combat) reactionTarget='';
       error='';
       render();
       animateEffect();

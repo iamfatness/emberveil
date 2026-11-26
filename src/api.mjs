@@ -1,4 +1,4 @@
-import {player,act,view,hasStarted,MAX_PLAYERS,leaders,expireCombat} from './game.mjs';
+import {player,act,view,hasStarted,MAX_PLAYERS,leaders,expireCombat,playBots,modes,humanLimit} from './game.mjs';
 const storageReady = new WeakMap();
 export function prepareStorage(db){
   let ready=storageReady.get(db);
@@ -25,9 +25,10 @@ export async function api(request, db){
       const room=await get(code);
       if(!room) return response({error:'Room not found.'},404);
       const game=JSON.parse(room.state);
-      const seat=game.players.findIndex(p=>p.key===request.headers.get('Authorization'));
+      const seat=game.players.findIndex(p=>!p.bot&&p.key===request.headers.get('Authorization'));
       if(seat<0) return response({error:'Join the room first.'},403);
-      if(expireCombat(game)){
+      const expired=expireCombat(game);
+      if(playBots(game)||expired){
         const result=await update(game,room.revision);
         if(result.meta.changes) return response(view(game,seat,room.revision+1));
         const latest=await get(code);
@@ -43,32 +44,38 @@ export async function api(request, db){
     const name=typeof input.name==='string'?input.name.trim().slice(0,22):'';
     const leader=Object.hasOwn(leaders,input.leader)?input.leader:'tala';
     if(code==='CREATE' && input.type==='create'){
-      const game={players:[player(name||'Player 1',key,leader)],rules:2,started:false,active:0,round:1,winner:null,last:''};
+      const mode=Object.hasOwn(modes,input.mode)?input.mode:'ffa';
+      const botCount=mode==='coop'&&[1,2,3].includes(input.botCount)?input.botCount:mode==='coop'?2:0;
+      const turnSeconds=[60,90,120].includes(input.turnSeconds)?input.turnSeconds:90;
+      const game={players:[{...player(name||'Player 1',key,leader),team:0}],mode,botCount,turnSeconds,rules:3,started:false,active:0,round:1,winner:null,last:''};
       const id=crypto.randomUUID().slice(0,8).toUpperCase();
       await db.prepare('INSERT INTO rooms (code,state) VALUES (?,?)').bind(id,JSON.stringify(game)).run();
       return response({...view(game,0,0),code:id});
     }
     const joining=input.type==='join';
-    for(let attempt=0;attempt<(joining?MAX_PLAYERS:1);attempt++){
+    const parallelReaction=['react','pass'].includes(input.type)&&typeof input.combatId==='string';
+    for(let attempt=0;attempt<(joining||parallelReaction?MAX_PLAYERS:1);attempt++){
       const room=await get(code);
       if(!room) return response({error:'Room not found.'},404);
       const game=JSON.parse(room.state);
-      let seat=game.players.findIndex(p=>p.key===key);
+      let seat=game.players.findIndex(p=>!p.bot&&p.key===key);
       if(joining){
         if(seat>=0) return response({...view(game,seat,room.revision),code});
         if(hasStarted(game)) return response({error:'This match has already started.'},409);
-        if(game.players.length>=MAX_PLAYERS) return response({error:'This room already has six players.'},409);
+        if(game.players.length>=humanLimit(game)) return response({error:'This room is full.'},409);
         seat=game.players.length;
         game.started=false;
-        game.players.push(player(name||'Player '+(seat+1),key,game.rules===2?leader:null));
+        game.players.push({...player(name||'Player '+(seat+1),key,game.rules>=2?leader:null),team:game.mode==='teams'?seat%2:0});
       }else{
         if(seat<0) return response({error:'Join the room first.'},403);
-        if(input.revision!==room.revision) return response({error:'The battlefield changed. Try again.'},409);
+        if(input.revision!==room.revision&&!(parallelReaction&&game.combat?.id===input.combatId)) return response({error:'The battlefield changed. Try again.'},409);
         if(expireCombat(game)){
+          playBots(game);
           await update(game,room.revision);
-          return response({error:'That combat window closed.'},409);
+          return response({error:'That action window closed.'},409);
         }
         act(game,seat,input);
+        playBots(game);
       }
       const result=await update(game,room.revision);
       if(result.meta.changes) return response({...view(game,seat,room.revision+1),code});

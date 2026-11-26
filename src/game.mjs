@@ -36,16 +36,41 @@ export function player(name, key, leader='tala') {
   return {name,key,leader,leaderCasts:0,life:20,mana:0,max:0,board:[],hand:deck.splice(0,5),deck};
 }
 export const MAX_PLAYERS = 6;
+export const modes={ffa:'Free-for-all',teams:'Team PvP',coop:'Co-op vs bots'};
+export const allies=(game,a,b)=>a===b||game.mode&&game.mode!=='ffa'&&game.players[a].team===game.players[b].team;
+export const humanLimit=game=>game.mode==='coop'?MAX_PLAYERS-game.botCount:MAX_PLAYERS;
+export const readyToStart=game=>game.mode==='coop'||(game.mode==='teams'
+  ? game.players.length>=4 && game.players.length%2===0
+  : game.players.length>=2);
+function redraw(p){
+  p.deck.push(...p.hand);
+  for(let i=p.deck.length-1;i>0;i--){
+    const j=crypto.getRandomValues(new Uint32Array(1))[0]%(i+1);
+    [p.deck[i],p.deck[j]]=[p.deck[j],p.deck[i]];
+  }
+  p.hand=p.deck.splice(0,5);
+  p.redrawn=true;
+}
+function cleanDamage(game){
+  if(game.rules>=2) game.players.forEach(p=>p.board.forEach(unit=>unit.hp=cards[unit.kind].hp));
+}
+function endTurn(game){
+  cleanDamage(game);
+  advance(game);
+}
+
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
   game.last=message;
   const remaining=game.players.flatMap((p,i)=>p.eliminated?[]:[i]);
-  if(remaining.length===1) game.winner=remaining[0];
+  if(remaining.length && remaining.every(i=>allies(game,i,remaining[0]))) game.winner=remaining[0];
 }
 function beginTurn(game){
   const p=game.players[game.active];
+  game.attacked=false;
+  if(game.rules>=3) game.turnDeadline=Date.now()+game.turnSeconds*1000;
   p.max=Math.min(10,p.max+1);
   p.mana=p.max;
   p.board.forEach(unit=>{
@@ -96,10 +121,96 @@ function finishBlocking(game, id){
     .filter(i=>reactionEligible(game.players[i]));
   if(!combat.queue.length) resolveCombat(game);
 }
+function resolveBatch(game){
+  const combat=game.combat;
+  const attacker=game.players[combat.attacker], defender=game.players[combat.defender];
+  let total=0;
+  for(const strike of combat.strikes){
+    const unit=attacker.board.find(unit=>unit.id===strike.unit);
+    const blocker=defender.board.find(unit=>unit.id===strike.blocker);
+    const damage=Math.max(0,cards[unit.kind].power+strike.boost-strike.shield);
+    if(blocker){
+      blocker.hp-=damage;
+      unit.hp-=cards[blocker.kind].power;
+    }else total+=damage;
+  }
+  defender.life-=total;
+  attacker.board=attacker.board.filter(unit=>unit.hp>0);
+  defender.board=defender.board.filter(unit=>unit.hp>0);
+  game.combat=null;
+  game.turnDeadline=Date.now()+combat.turnRemaining;
+  game.effect={type:'impact',seat:combat.defender};
+  game.last=defender.name+' took '+total+' combat damage.';
+  if(defender.life<=0) eliminate(game,combat.defender,defender.name+' was eliminated.');
+}
+function batchReactions(game){
+  const combat=game.combat;
+  combat.phase='react';
+  combat.deadline=Date.now()+15_000;
+  combat.queue=game.players.flatMap((p,i)=>!p.bot&&reactionEligible(p)?[i]:[]);
+  if(!combat.queue.length) resolveBatch(game);
+}
+function batchResponse(game,seat,data){
+  const combat=game.combat;
+  const p=game.players[seat];
+  if(combat.phase==='block'){
+    if(seat!==combat.defender||data.type!=='blocks'||!Array.isArray(data.blocks)||data.blocks.length>combat.strikes.length) throw Error('Only the defender can assign blockers.');
+    const used=new Set();
+    const assigned=new Set();
+    for(const block of data.blocks){
+      const strike=combat.strikes.find(strike=>strike.unit===block.attacker);
+      if(!strike||assigned.has(block.attacker)||used.has(block.blocker)||!p.board.some(unit=>unit.id===block.blocker&&!unit.exhausted)) throw Error('Each attacker and blocker can be assigned once.');
+      assigned.add(block.attacker);
+      used.add(block.blocker);
+    }
+    for(const block of data.blocks) combat.strikes.find(strike=>strike.unit===block.attacker).blocker=block.blocker;
+    batchReactions(game);
+    return;
+  }
+  if(!combat.queue.includes(seat)||!['react','pass'].includes(data.type)) throw Error('Your reaction opportunity is closed.');
+  if(data.type==='react'){
+    const strike=combat.strikes.find(strike=>strike.unit===data.strike);
+    const index=p.hand.findIndex(unit=>unit.id===data.id);
+    const card=cards[p.hand[index]?.kind];
+    if(!strike||!card?.reaction||card.cost>p.mana) throw Error('Choose an attacker and an affordable reaction.');
+    p.hand.splice(index,1);
+    p.mana-=card.cost;
+    if(card.reaction==='shield') strike.shield+=3;
+    else strike.boost+=2;
+    game.last=p.name+' cast '+card.name+'.';
+    game.effect={type:card.reaction,seat:combat.defender,unit:strike.blocker};
+  }
+  combat.queue=combat.queue.filter(i=>i!==seat);
+  if(!combat.queue.length) resolveBatch(game);
+}
+function declareAttack(game,seat,opponent,ids){
+  const p=game.players[seat];
+  if(game.attacked||!Array.isArray(ids)||!ids.length||ids.length>p.board.length||new Set(ids).size!==ids.length) throw Error('Choose attackers for your one combat this turn.');
+  const units=ids.map(id=>p.board.find(unit=>unit.id===id && unit.ready));
+  if(units.some(unit=>!unit)) throw Error('Choose ready attackers.');
+  for(const unit of units){unit.ready=false;unit.exhausted=true;}
+  game.attacked=true;
+  game.combat={id:crypto.randomUUID(),strikes:ids.map(unit=>({unit,boost:0,shield:0})),attacker:seat,defender:opponent,
+    phase:'block',deadline:Date.now()+20_000,turnRemaining:Math.max(0,game.turnDeadline-Date.now())};
+  game.effect={type:'attack',seat,unit:ids[0]};
+  game.last=p.name+' declared '+ids.length+' attacker'+(ids.length===1?'':'s')+'.';
+  if(!game.players[opponent].board.some(unit=>!unit.exhausted)) batchReactions(game);
+}
 export function expireCombat(game, now=Date.now()){
-  if(!game.combat || game.combat.deadline>now) return false;
+  if(game.winner!==null||!hasStarted(game)) return false;
+  if(!game.combat){
+    if(!game.turnDeadline||game.turnDeadline>now) return false;
+    game.last=game.players[game.active].name+' ran out of turn time.';
+    game.effect=null;
+    endTurn(game);
+    return true;
+  }
+  if(game.combat.deadline>now) return false;
   game.effect=null;
-  if(game.combat.phase==='block') finishBlocking(game,null);
+  if(game.combat.strikes){
+    if(game.combat.phase==='block') batchReactions(game);
+    else resolveBatch(game);
+  }else if(game.combat.phase==='block') finishBlocking(game,null);
   else resolveCombat(game);
   return true;
 }
@@ -139,8 +250,20 @@ function summonSprites(p,count){
 }
 export function act(game, seat, data){
   game.effect=null;
+  if(data.type==='redraw'){
+    const p=game.players[seat];
+    if(game.rules<3||hasStarted(game)||p.redrawn) throw Error('Your opening redraw is unavailable.');
+    redraw(p);
+    return;
+  }
   if(data.type==='start'){
-    if(hasStarted(game) || seat!==0 || game.players.length<2) throw Error('The host can start with at least two players.');
+    if(hasStarted(game) || seat!==0 || !readyToStart(game)) throw Error('The host can start once the room has enough players for this mode.');
+    if(game.mode==='coop'){
+      for(let i=0;i<game.botCount;i++){
+        const bot=player('Sentinel '+(i+1),null,['vael','orrun','iskar'][i]);
+        game.players.push({...bot,bot:true,team:1});
+      }
+    }
     game.started=true;
     beginTurn(game);
     return;
@@ -150,20 +273,22 @@ export function act(game, seat, data){
   if(p.eliminated) throw Error('You have been eliminated.');
   if(data.type==='concede'){
     const combat=game.combat;
-    if(combat?.attacker===seat||combat?.defender===seat) game.combat=null;
+    if(combat?.attacker===seat||combat?.defender===seat){
+      if(combat.strikes) game.turnDeadline=Date.now()+combat.turnRemaining;
+      game.combat=null;
+    }
     else if(combat?.phase==='react') combat.queue=combat.queue.filter(i=>i!==seat);
     eliminate(game,seat,p.name+' conceded.');
     if(game.winner!==null) game.combat=null;
-    else if(game.active===seat) advance(game);
-    else if(game.combat?.phase==='react'&&!game.combat.queue.length) resolveCombat(game);
+    else if(game.active===seat) endTurn(game);
+    else if(game.combat?.phase==='react'&&!game.combat.queue.length) (game.combat.strikes?resolveBatch:resolveCombat)(game);
     return;
   }
-  if(game.combat){respondToCombat(game,seat,data);return;}
+  if(game.combat){(game.combat.strikes?batchResponse:respondToCombat)(game,seat,data);return;}
   if(seat!==game.active) throw Error('Wait for your turn.');
   if(data.type==='end'){
-    if(game.rules===2) game.players.forEach(p=>p.board.forEach(unit=>unit.hp=cards[unit.kind].hp));
     game.last='';
-    advance(game);
+    endTurn(game);
     return;
   }
   if(data.type==='summon'){
@@ -182,9 +307,14 @@ export function act(game, seat, data){
     return;
   }
   const enemySeat=data.opponent ?? (game.players.length===2?1-seat:undefined);
-  const enemy=enemySeat!==seat && Number.isInteger(enemySeat)?game.players[enemySeat]:undefined;
+  const enemy=Number.isInteger(enemySeat) && game.players[enemySeat] && !allies(game,seat,enemySeat)?game.players[enemySeat]:undefined;
   const opponent=enemy && !enemy.eliminated?enemy:undefined;
   const target=opponent?.board.find(unit=>unit.id===data.target);
+  if(data.type==='attack-batch'){
+    if(game.rules<3||!opponent) throw Error('Choose an opposing player.');
+    declareAttack(game,seat,enemySeat,data.ids);
+    return;
+  }
   if(data.type==='play'){
     const index=p.hand.findIndex(unit=>unit.id===data.id);
     if(index<0) throw Error('That card is unavailable.');
@@ -213,6 +343,7 @@ export function act(game, seat, data){
     else if(card.heal||card.ramp) game.effect={type:'heal',seat};
     else game.effect={type:card.freeze?'shield':'boost',seat:enemySeat,unit:target?.id};
   }else if(data.type==='attack'){
+    if(game.rules>=3) throw Error('Declare your attackers together.');
     const unit=p.board.find(unit=>unit.id===data.id && unit.ready);
     if(!unit) throw Error('That creature cannot attack.');
     if(!opponent) throw Error('Choose an opposing player.');
@@ -241,11 +372,48 @@ export function act(game, seat, data){
     if(opponent.life<=0) eliminate(game,enemySeat,opponent.name+' was eliminated.');
   }
 }
+export function playBots(game){
+  let changed=false;
+  for(let i=0;i<60&&game.winner===null&&game.started;i++){
+    const combat=game.combat;
+    const seat=game.active;
+    const p=game.players[seat];
+    if(combat){
+      const defender=game.players[combat.defender];
+      if(combat.phase!=='block'||!defender.bot) break;
+      const blockers=defender.board.filter(unit=>!unit.exhausted).sort((a,b)=>b.hp-a.hp);
+      const attacks=[...combat.strikes].sort((a,b)=>{
+        const power=strike=>cards[p.board.find(unit=>unit.id===strike.unit).kind].power;
+        return power(b)-power(a);
+      });
+      const blocks=blockers.slice(0,attacks.length).map((unit,i)=>({attacker:attacks[i].unit,blocker:unit.id}));
+      act(game,combat.defender,{type:'blocks',blocks});
+    }else if(p.bot){
+      const opponent=game.players.map((target,i)=>({target,i}))
+        .filter(({target,i})=>!target.eliminated&&!allies(game,seat,i))
+        .sort((a,b)=>a.target.life-b.target.life||a.target.board.length-b.target.board.length)[0];
+      const ready=p.board.filter(unit=>unit.ready).map(unit=>unit.id);
+      const available=p.hand.find(unit=>{
+        const card=cards[unit.kind];
+        return card.cost<=p.mana&&!card.reaction&&(!card.freeze||opponent.target.board.length)&&(!card.heal||p.life<=16)&&(!card.ramp||p.max<10);
+      });
+      if(!p.board.some(unit=>unit.kind===p.leader)&&p.mana>=cards[p.leader].cost+p.leaderCasts) act(game,seat,{type:'summon'});
+      else if(available){
+        const card=cards[available.kind];
+        const target=card.freeze?opponent.target.board[0]?.id:opponent.target.board.find(unit=>unit.hp<=card.damage)?.id;
+        act(game,seat,{type:'play',id:available.id,opponent:opponent.i,target:target??'hero'});
+      }else if(ready.length&&!game.attacked) act(game,seat,{type:'attack-batch',opponent:opponent.i,ids:ready});
+      else act(game,seat,{type:'end'});
+    }else break;
+    changed=true;
+  }
+  return changed;
+}
 export function view(game, seat, revision){
   const combat=game.combat;
-  const visibleCombat=combat&&{attacker:combat.attacker,defender:combat.defender,unit:combat.unit,blocker:combat.blocker,
-    phase:combat.phase,deadline:combat.deadline,canReact:combat.queue?.[0]===seat,boost:combat.boost,shield:combat.shield};
-  return {revision,seat,rules:game.rules,combat:visibleCombat,effect:game.effect,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
-    players:game.players.map((p,i)=>({name:p.name,life:p.life,mana:p.mana,max:p.max,leader:p.leader,leaderCost:p.leader?cards[p.leader].cost+p.leaderCasts:undefined,eliminated:!!p.eliminated,board:p.board,
+  const visibleCombat=combat&&{id:combat.id,strikes:combat.strikes,attacker:combat.attacker,defender:combat.defender,unit:combat.unit,blocker:combat.blocker,
+    phase:combat.phase,deadline:combat.deadline,canReact:combat.strikes?combat.queue?.includes(seat):combat.queue?.[0]===seat,boost:combat.boost,shield:combat.shield};
+  return {revision,seat,mode:game.mode,botCount:game.botCount,turnDeadline:game.turnDeadline,turnSeconds:game.turnSeconds,attacked:game.attacked,readyToStart:readyToStart(game),humanLimit:humanLimit(game),rules:game.rules,combat:visibleCombat,effect:game.effect,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
+    players:game.players.map((p,i)=>({name:p.name,team:p.team,bot:p.bot,redrawn:p.redrawn,life:p.life,mana:p.mana,max:p.max,leader:p.leader,leaderCost:p.leader?cards[p.leader].cost+p.leaderCasts:undefined,eliminated:!!p.eliminated,board:p.board,
       hand:i===seat?p.hand:undefined,handSize:p.hand.length,deckSize:p.deck.length}))};
 }
