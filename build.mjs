@@ -1,5 +1,8 @@
-import {readFile,writeFile,mkdir,copyFile} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,copyFile,readdir} from 'node:fs/promises';
 const types={'/':'text/html; charset=utf-8','/style.css':'text/css','/app.js':'text/javascript','/game.mjs':'text/javascript','/citadel.webp':'image/webp'};
+for(const name of await readdir('public/art')){
+  if(name.endsWith('.webp')) types['/art/'+name]='image/webp';
+}
 const assets={};
 for(const [path,type] of Object.entries(types)){
   const file=path==='/'?'public/index.html':path==='/game.mjs'?'src/game.mjs':'public'+path;

@@ -60,6 +60,7 @@ function resolveCombat(game){
   const attacker=game.players[combat.attacker], defender=game.players[combat.defender];
   const unit=attacker.board.find(unit=>unit.id===combat.unit);
   const blocker=defender.board.find(unit=>unit.id===combat.blocker);
+  game.effect={type:'impact',seat:combat.defender,unit:blocker?.id};
   const damage=Math.max(0,cards[unit.kind].power+combat.boost-combat.shield);
   if(blocker){
     blocker.hp-=damage;
@@ -82,6 +83,7 @@ function finishBlocking(game, id){
 }
 export function expireCombat(game, now=Date.now()){
   if(!game.combat || game.combat.deadline>now) return false;
+  game.effect=null;
   if(game.combat.phase==='block') finishBlocking(game,null);
   else resolveCombat(game);
   return true;
@@ -92,6 +94,7 @@ function respondToCombat(game,seat,data){
   if(combat.phase==='block'){
     if(seat!==combat.defender || data.type!=='block') throw Error('Waiting for the defender.');
     if(data.id!=null && !p.board.some(unit=>unit.id===data.id && !unit.exhausted)) throw Error('Choose an available blocker.');
+    if(data.id) game.effect={type:'shield',seat,unit:data.id};
     finishBlocking(game,data.id??null);
     return;
   }
@@ -105,11 +108,13 @@ function respondToCombat(game,seat,data){
     if(card.reaction==='shield') combat.shield+=3;
     else combat.boost+=2;
     game.last=p.name+' cast '+card.name+'.';
+    game.effect={type:card.reaction,seat:combat.defender,unit:combat.blocker};
   }
   combat.queue.shift();
   if(!combat.queue.length) resolveCombat(game);
 }
 export function act(game, seat, data){
+  game.effect=null;
   if(data.type==='start'){
     if(hasStarted(game) || seat!==0 || game.players.length<2) throw Error('The host can start with at least two players.');
     game.started=true;
@@ -144,7 +149,9 @@ export function act(game, seat, data){
     if(p.mana<cost) throw Error('You need more mana.');
     p.mana-=cost;
     p.leaderCasts++;
-    p.board.push({kind:p.leader,id:crypto.randomUUID(),hp:card.hp,ready:false});
+    const unit={kind:p.leader,id:crypto.randomUUID(),hp:card.hp,ready:false};
+    p.board.push(unit);
+    game.effect={type:'summon',seat,unit:unit.id};
     game.last=p.name+' summoned '+card.name+'.';
     return;
   }
@@ -168,6 +175,7 @@ export function act(game, seat, data){
       else opponent.life-=card.damage;
     }
     game.last=p.name+' played '+card.name+'.';
+    game.effect=card.power?{type:'summon',seat,unit:unit.id}:card.heal?{type:'heal',seat}:{type:'boost',seat:enemySeat,unit:target?.id};
   }else if(data.type==='attack'){
     const unit=p.board.find(unit=>unit.id===data.id && unit.ready);
     if(!unit) throw Error('That creature cannot attack.');
@@ -177,6 +185,7 @@ export function act(game, seat, data){
       unit.ready=false;
       unit.exhausted=true;
       game.combat={attacker:seat,defender:enemySeat,unit:unit.id,phase:'block',boost:0,shield:0,deadline:Date.now()+combatTimeout};
+      game.effect={type:'attack',seat,unit:unit.id};
       game.last=p.name+' attacked '+opponent.name+' with '+cards[unit.kind].name+'.';
       if(!opponent.board.some(unit=>!unit.exhausted)) finishBlocking(game,null);
       return;
@@ -188,6 +197,7 @@ export function act(game, seat, data){
       unit.hp-=cards[target.kind].power;
     }else opponent.life-=cards[unit.kind].power;
     game.last=p.name+' attacked '+opponent.name+' with '+cards[unit.kind].name+'.';
+    game.effect={type:'impact',seat:enemySeat,unit:target?.id};
   }else throw Error('Unknown action.');
   p.board=p.board.filter(unit=>unit.hp>0);
   if(opponent){
@@ -199,7 +209,7 @@ export function view(game, seat, revision){
   const combat=game.combat;
   const visibleCombat=combat&&{attacker:combat.attacker,defender:combat.defender,unit:combat.unit,blocker:combat.blocker,
     phase:combat.phase,deadline:combat.deadline,canReact:combat.queue?.[0]===seat,boost:combat.boost,shield:combat.shield};
-  return {revision,seat,rules:game.rules,combat:visibleCombat,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
+  return {revision,seat,rules:game.rules,combat:visibleCombat,effect:game.effect,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
     players:game.players.map((p,i)=>({name:p.name,life:p.life,mana:p.mana,max:p.max,leader:p.leader,leaderCost:p.leader?cards[p.leader].cost+p.leaderCasts:undefined,eliminated:!!p.eliminated,board:p.board,
       hand:i===seat?p.hand:undefined,handSize:p.hand.length,deckSize:p.deck.length}))};
 }

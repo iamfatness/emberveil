@@ -9,10 +9,13 @@ $('rules').onclick=()=>$('guide').showModal();
 
 for(const id of ['host-leader','guest-leader']){
   $(id).innerHTML=Object.entries(leaders).map(([kind,leader])=>`<option value="${kind}">${cards[kind].name} · ${leader.style}</option>`).join('');
-  const detail=document.createElement('small');
+  const detail=document.createElement('div');
   detail.className='deck-detail';
   $(id).after(detail);
-  const describe=()=>{detail.textContent=leaders[$(id).value].text;};
+  const describe=()=>{
+    const kind=$(id).value;
+    detail.innerHTML=portrait(kind)+'<span>'+leaders[kind].text+'</span>';
+  };
   $(id).addEventListener('change',describe);
   describe();
 }
@@ -28,11 +31,24 @@ async function api(code,data){
 function escape(value){
   return String(value).replace(/[&<>"']/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[character]);
 }
+function portrait(kind){
+  return `<img src="/art/${kind}.webp" alt="" draggable="false">`;
+}
+function animateEffect(){
+  const effect=game.effect;
+  if(!effect) return;
+  const field=arena.querySelector(`[data-seat="${effect.seat}"]`);
+  if(!field) return;
+  const unit=effect.unit&&field.querySelector(`[data-id="${CSS.escape(effect.unit)}"]`);
+  const target=unit||field;
+  target.classList.add('effect-'+effect.type);
+  target.addEventListener('animationend',()=>target.classList.remove('effect-'+effect.type),{once:true});
+}
 function card(unit,zone,enabled,opponent){
   const info=cards[unit.kind];
   const inHand=zone==='hand'||zone==='reaction';
   const detail=inHand?(info.damage?'Deal 3 damage':info.heal?'Heal 4 life':info.text??info.power+' / '+info.hp):info.power+' / '+unit.hp;
-  return `<button class="card" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="sigil" aria-hidden="true">${info.icon}</span><span>${inHand?info.cost+' mana · ':''}${detail}${zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
+  return `<button class="card" data-kind="${unit.kind}" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="card-art">${portrait(unit.kind)}${inHand?`<b class="mana-cost" aria-label="${info.cost} mana">${info.cost}</b>`:''}</span><span class="card-detail">${detail}${zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
 }
 function render(){
   if(!game) return;
@@ -55,18 +71,18 @@ function render(){
   const defender=combat&&game.players[combat.defender];
   const attackingCard=combat&&attacker.board.find(unit=>unit.id===combat.unit);
   const combatPanel=combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Waiting for combat reactions.'} <span id="combat-clock"></span></p>${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'';
-  const leaderPanel=mine.leader?`<section class="field leader"><h2>Leader zone</h2><p>${cards[mine.leader].name} · ${leaders[mine.leader].style}</p><button class="outline" data-action="summon" ${active&&mine.mana>=mine.leaderCost&&!mine.board.some(unit=>unit.kind===mine.leader)?'':'disabled'}>Summon leader · ${mine.leaderCost} mana</button></section>`:'';
-  const stats=(p,i)=>`<strong>${escape(p.name)}${i===game.seat?' · You':''}</strong><span>${p.eliminated?'Eliminated':game.winner===null&&game.active===i?'Taking turn':''}</span><span>♥ ${Math.max(0,p.life)} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span>`;
+  const leaderPanel=mine.leader?`<section class="field leader"><div class="leader-art">${portrait(mine.leader)}</div><div><h2>Leader zone</h2><p>${cards[mine.leader].name} · ${leaders[mine.leader].style}</p><button class="outline" data-action="summon" ${active&&mine.mana>=mine.leaderCost&&!mine.board.some(unit=>unit.kind===mine.leader)?'':'disabled'}>Summon leader · ${mine.leaderCost} mana</button></div></section>`:'';
+  const stats=(p,i)=>`<strong class="player-name">${p.leader?portrait(p.leader):''}${escape(p.name)}${i===game.seat?' · You':''}</strong><span>${p.eliminated?'Eliminated':game.winner===null&&game.active===i?'Taking turn':''}</span><span>♥ ${Math.max(0,p.life)} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span>`;
   const opponents=game.players.map((p,i)=>{
     if(i===game.seat) return '';
     const enabled=active&&selected&&!p.eliminated;
-    return `<section class="field ${p.eliminated?'eliminated':''}" aria-label="${escape(p.name)}’s battlefield"><div class="stats">${stats(p,i)}<button class="outline enemy-target" data-action="hero" data-opponent="${i}" ${enabled&&(game.rules===2||selected.type==='play'||!p.board.length)?'':'disabled'}>Target player</button></div><div class="cards">${p.eliminated?'Out of the match':p.board.map(unit=>card(unit,'enemy',enabled&&(game.rules!==2||selected.type==='play'),i)).join('')||'<span>No creatures in play</span>'}</div></section>`;
+    return `<section data-seat="${i}" class="field player-field ${game.active===i&&!outcome?'current-turn':''} ${p.eliminated?'eliminated':''}" aria-label="${escape(p.name)}’s battlefield"><div class="stats">${stats(p,i)}<button class="outline enemy-target" data-action="hero" data-opponent="${i}" ${enabled&&(game.rules===2||selected.type==='play'||!p.board.length)?'':'disabled'}>Target player</button></div><div class="cards">${p.eliminated?'Out of the match':p.board.map(unit=>card(unit,'enemy',enabled&&(game.rules!==2||selected.type==='play'),i)).join('')||'<span>No creatures in play</span>'}</div></section>`;
   }).join('');
   const leave=outcome||mine.eliminated;
   arena.innerHTML=`<div class="bar"><h1>Battlefield</h1><button class="quiet" data-action="${leave?'leave':'concede'}" ${busy?'disabled':''}>${leave?'Back to lobby':'Concede'}</button></div>
   <p id="status" role="status">${escape(error||outcome||(mine.eliminated?'You’re eliminated. '+prompt:prompt))} ${game.last&&!error?' · '+escape(game.last):''}</p>
   ${combatPanel}<div class="opponents">${opponents}</div>
-  <section class="field" aria-label="Your battlefield"><div class="stats">${stats(mine,game.seat)}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div><div class="cards">${mine.board.map(unit=>card(unit,blocking?'block':'mine',blocking?!unit.exhausted:active&&unit.ready)).join('')||'<span>No creatures in play</span>'}</div></section>
+  <section data-seat="${game.seat}" class="field player-field ${active?'current-turn':''}" aria-label="Your battlefield"><div class="stats">${stats(mine,game.seat)}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div><div class="cards">${mine.board.map(unit=>card(unit,blocking?'block':'mine',blocking?!unit.exhausted:active&&unit.ready)).join('')||'<span>No creatures in play</span>'}</div></section>
   ${leaderPanel}<section class="field" aria-label="Your hand"><strong>Your hand</strong><div class="cards">${mine.hand.map(unit=>card(unit,cards[unit.kind].reaction?'reaction':'hand',(cards[unit.kind].reaction?reacting:active)&&cards[unit.kind].cost<=mine.mana)).join('')||'<span>Your hand is empty</span>'}</div></section>`;
 }
 function enter(state){
@@ -98,8 +114,9 @@ async function move(data){
   try{
     game=await api(room,{...data,revision:game.revision});
     selected=undefined;
-  }catch(reason){error=reason.message;}
+  }catch(reason){error=reason.message;return;}
   finally{busy=false;render();}
+  animateEffect();
 }
 arena.onclick=async event=>{
   const button=event.target.closest('button');
@@ -145,6 +162,7 @@ setInterval(async ()=>{
       selected=undefined;
       error='';
       render();
+      animateEffect();
     }
   }catch{
     if(!busy&&error!=='Connection interrupted. Reconnecting…'){

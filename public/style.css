@@ -16,3 +16,35 @@ select{font:inherit;color:var(--ink);background:#110e0c;border:1px solid #49392b
 .combat{border-color:#9a744a;margin-bottom:12px}
 .combat p,.leader p{margin:.4rem 0 .65rem;color:var(--muted)}
 .leader h2{margin:0;font-size:1rem}
+
+body:has(#arena:not([hidden])){background:#13100f url('/art/arena.webp') center top / cover fixed no-repeat}
+#arena .field{background:linear-gradient(140deg,#211913f0,#100e0dea);box-shadow:0 12px 32px #0004}
+#arena .bar{padding:10px 0;border-bottom:1px solid #71533288}
+#arena .player-field.current-turn{border-color:#b78c54;box-shadow:inset 0 0 22px #cb7c261d,0 0 14px #d6882024}
+.player-name{display:inline-flex;align-items:center;gap:8px}
+.player-name img{width:34px;height:34px;object-fit:cover;border:1px solid #9f723f;border-radius:50%}
+.card{min-width:130px;width:130px;min-height:148px;gap:0;grid-template-rows:minmax(28px,auto) 74px minmax(34px,auto);padding:3px;position:relative;background:linear-gradient(150deg,#513823,#211712 70%);border-color:#96704b;box-shadow:0 3px 9px #0006}
+.card strong{padding:3px 5px;align-self:center;font-family:Cinzel,Georgia,serif;font-size:.74rem;line-height:1.15}
+.card-art{position:relative;overflow:hidden;border:1px solid #906941;background:#17100c;display:block}
+.card-art img{display:block;width:100%;height:100%;object-fit:cover}
+.card .mana-cost{position:absolute;right:4px;top:4px;min-width:22px;height:22px;display:grid;place-items:center;border:1px solid #e8b26c;border-radius:50%;background:#160e09e8;color:#ffe9bb}
+.card .card-detail{line-height:1.2;font-size:.73rem;padding:4px 5px;color:#f4d7a6;align-self:center}
+.card:disabled{opacity:.83}
+.card:disabled[data-zone='hand'],.card:disabled[data-zone='reaction']{filter:saturate(.52)}
+.card:not(:disabled):hover{border-color:#f3c47e;filter:brightness(1.17)}
+.card[data-selected=true]{outline:2px solid #ffda93;outline-offset:1px}
+.leader{display:flex;align-items:center;gap:15px}
+.leader-art{width:85px;height:75px;flex:none;border:1px solid #9f723f;border-radius:5px;overflow:hidden}
+.leader-art img{width:100%;height:100%;object-fit:cover}
+.effect-summon{animation:summon .72s ease-out both}
+.effect-attack{animation:attack .48s ease-out both}
+.effect-impact,.effect-boost{animation:impact .62s ease-out both}
+.effect-shield,.effect-heal{animation:ward .75s ease-out both}
+@keyframes summon{from{opacity:.5;transform:scale(.92);filter:brightness(2) drop-shadow(0 0 12px #ffc064)}to{opacity:1;transform:scale(1);filter:none}}
+@keyframes attack{35%{transform:translateY(-6px);filter:brightness(1.65) drop-shadow(0 0 7px #ffb456)}}
+@keyframes impact{22%{transform:translateX(-3px);filter:brightness(1.65) drop-shadow(0 0 7px #ec6a3d)}45%{transform:translateX(2px)}}
+@keyframes ward{25%{filter:brightness(1.4) drop-shadow(0 0 9px #9fcaec)}}
+@media(prefers-reduced-motion:reduce){.effect-summon,.effect-attack,.effect-impact,.effect-boost,.effect-shield,.effect-heal{animation:none}}
+.deck-detail{display:flex;align-items:center;gap:9px;min-height:44px}
+.deck-detail img{width:44px;height:38px;object-fit:cover;border-radius:4px;border:1px solid #96704b}
+.card:disabled[data-zone='hand'],.card:disabled[data-zone='reaction']{border-color:#5d4532}
