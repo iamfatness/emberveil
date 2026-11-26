@@ -7,9 +7,8 @@ for(const [path,type] of Object.entries(types)){
 }
 const sources=await Promise.all(['game','api','worker'].map(file=>readFile('src/'+file+'.mjs','utf8')));
 const worker='const assets = '+JSON.stringify(assets)+';\n'+sources.map(source=>source.replace(/^import .*\n/gm,'')).join('\n');
-await Promise.all(['dist/server','dist/.openai','dist/drizzle'].map(directory=>mkdir(directory,{recursive:true})));
+await Promise.all(['dist/server','dist/.openai'].map(directory=>mkdir(directory,{recursive:true})));
 await Promise.all([
   writeFile('dist/server/index.js',worker),
-  copyFile('.openai/hosting.json','dist/.openai/hosting.json'),
-  copyFile('migrations/0001_rooms.sql','dist/drizzle/0001_rooms.sql')
+  copyFile('.openai/hosting.json','dist/.openai/hosting.json')
 ]);

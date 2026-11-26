@@ -1,10 +1,23 @@
 import {player,turn,act,view} from './game.mjs';
+const storageReady = new WeakMap();
+export function prepareStorage(db){
+  let ready=storageReady.get(db);
+  if(!ready){
+    ready=Promise.resolve().then(()=>db.prepare(
+      'CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, state TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)'
+    ).bind().run());
+    storageReady.set(db,ready);
+    ready.catch(()=>storageReady.delete(db));
+  }
+  return ready;
+}
 const response=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
 export async function api(request, db){
   const url=new URL(request.url);
   const code=url.pathname.split('/')[2]?.toUpperCase();
   const get=(id)=>db.prepare('SELECT state, revision FROM rooms WHERE code=?').bind(id).first();
   try{
+    await prepareStorage(db);
     if(request.method==='GET'){
       if(!code) return response({error:'Enter a room code.'},400);
       const room=await get(code);

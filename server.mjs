@@ -1,11 +1,7 @@
 import {createServer} from 'node:http';
-import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import worker from './dist/server/index.js';
 const database=new DatabaseSync(process.env.EMBERVEIL_DB||'emberveil.sqlite');
-if(!database.prepare("SELECT name FROM sqlite_master WHERE name='rooms'").get()){
-  database.exec(readFileSync(new URL('./migrations/0001_rooms.sql',import.meta.url),'utf8'));
-}
 const DB={prepare(sql){
   const statement=database.prepare(sql);
   return {bind(...args){

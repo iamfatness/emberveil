@@ -1,5 +1,0 @@
-CREATE TABLE rooms (
-  code TEXT PRIMARY KEY,
-  state TEXT NOT NULL,
-  revision INTEGER NOT NULL DEFAULT 0
-);
