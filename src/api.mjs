@@ -1,4 +1,4 @@
-import {player,act,view,hasStarted,MAX_PLAYERS} from './game.mjs';
+import {player,act,view,hasStarted,MAX_PLAYERS,leaders,expireCombat} from './game.mjs';
 const storageReady = new WeakMap();
 export function prepareStorage(db){
   let ready=storageReady.get(db);
@@ -16,6 +16,8 @@ export async function api(request, db){
   const url=new URL(request.url);
   const code=url.pathname.split('/')[2]?.toUpperCase();
   const get=(id)=>db.prepare('SELECT state, revision FROM rooms WHERE code=?').bind(id).first();
+  const update=(game,revision)=>db.prepare('UPDATE rooms SET state=?, revision=revision+1 WHERE code=? AND revision=?')
+    .bind(JSON.stringify(game),code,revision).run();
   try{
     await prepareStorage(db);
     if(request.method==='GET'){
@@ -25,6 +27,12 @@ export async function api(request, db){
       const game=JSON.parse(room.state);
       const seat=game.players.findIndex(p=>p.key===request.headers.get('Authorization'));
       if(seat<0) return response({error:'Join the room first.'},403);
+      if(expireCombat(game)){
+        const result=await update(game,room.revision);
+        if(result.meta.changes) return response(view(game,seat,room.revision+1));
+        const latest=await get(code);
+        return response(view(JSON.parse(latest.state),seat,latest.revision));
+      }
       return response(view(game,seat,room.revision));
     }
     if(request.method!=='POST') return response({error:'Method not allowed.'},405);
@@ -33,8 +41,9 @@ export async function api(request, db){
     const key=request.headers.get('Authorization');
     if(!/^[\da-f-]{36}$/i.test(key||'')) return response({error:'Missing player session.'},403);
     const name=typeof input.name==='string'?input.name.trim().slice(0,22):'';
+    const leader=Object.hasOwn(leaders,input.leader)?input.leader:'tala';
     if(code==='CREATE' && input.type==='create'){
-      const game={players:[player(name||'Player 1',key)],started:false,active:0,round:1,winner:null,last:''};
+      const game={players:[player(name||'Player 1',key,leader)],rules:2,started:false,active:0,round:1,winner:null,last:''};
       const id=crypto.randomUUID().slice(0,8).toUpperCase();
       await db.prepare('INSERT INTO rooms (code,state) VALUES (?,?)').bind(id,JSON.stringify(game)).run();
       return response({...view(game,0,0),code:id});
@@ -51,14 +60,17 @@ export async function api(request, db){
         if(game.players.length>=MAX_PLAYERS) return response({error:'This room already has six players.'},409);
         seat=game.players.length;
         game.started=false;
-        game.players.push(player(name||'Player '+(seat+1),key));
+        game.players.push(player(name||'Player '+(seat+1),key,game.rules===2?leader:null));
       }else{
         if(seat<0) return response({error:'Join the room first.'},403);
         if(input.revision!==room.revision) return response({error:'The battlefield changed. Try again.'},409);
+        if(expireCombat(game)){
+          await update(game,room.revision);
+          return response({error:'That combat window closed.'},409);
+        }
         act(game,seat,input);
       }
-      const result=await db.prepare('UPDATE rooms SET state=?, revision=revision+1 WHERE code=? AND revision=?')
-        .bind(JSON.stringify(game),code,room.revision).run();
+      const result=await update(game,room.revision);
       if(result.meta.changes) return response({...view(game,seat,room.revision+1),code});
     }
     return response({error:'The room changed. Try again.'},409);

@@ -11,3 +11,8 @@
 .roster{text-align:left;margin:10px auto 0;padding-left:24px;min-width:180px;color:var(--muted)}
 .roster li{padding:4px 0}
 .waiting .actions{justify-content:center}
+select{font:inherit;color:var(--ink);background:#110e0c;border:1px solid #49392b;border-radius:5px;padding:.65rem .8rem;min-height:42px}
+.deck-detail{color:var(--muted);margin:5px 0 12px;font-size:.85rem}
+.combat{border-color:#9a744a;margin-bottom:12px}
+.combat p,.leader p{margin:.4rem 0 .65rem;color:var(--muted)}
+.leader h2{margin:0;font-size:1rem}
