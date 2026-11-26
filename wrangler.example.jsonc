@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "emberveil",
+  "main": "dist/server/index.js",
+  "compatibility_date": "2026-11-26",
+  "build": { "command": "npm run build" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "emberveil",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "cloudflare/migrations"
+    }
+  ],
+  "workers_dev": true
+}
