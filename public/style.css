@@ -48,3 +48,4 @@ body:has(#arena:not([hidden])){background:#13100f url('/art/arena.webp') center 
 .deck-detail{display:flex;align-items:center;gap:9px;min-height:44px}
 .deck-detail img{width:44px;height:38px;object-fit:cover;border-radius:4px;border:1px solid #96704b}
 .card:disabled[data-zone='hand'],.card:disabled[data-zone='reaction']{border-color:#5d4532}
+.card[data-kind='sylva'] .card-art img,.card[data-kind='orrun'] .card-art img,.card[data-kind='iskar'] .card-art img{object-position:center 30%}

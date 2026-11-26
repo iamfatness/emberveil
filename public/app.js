@@ -32,7 +32,7 @@ function escape(value){
   return String(value).replace(/[&<>"']/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[character]);
 }
 function portrait(kind){
-  return `<img src="/art/${kind}.webp" alt="" draggable="false">`;
+  return `<img src="/art/${cards[kind].art??kind}.webp" alt="" draggable="false">`;
 }
 function animateEffect(){
   const effect=game.effect;
@@ -48,7 +48,7 @@ function card(unit,zone,enabled,opponent){
   const info=cards[unit.kind];
   const inHand=zone==='hand'||zone==='reaction';
   const detail=inHand?(info.damage?'Deal 3 damage':info.heal?'Heal 4 life':info.text??info.power+' / '+info.hp):info.power+' / '+unit.hp;
-  return `<button class="card" data-kind="${unit.kind}" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="card-art">${portrait(unit.kind)}${inHand?`<b class="mana-cost" aria-label="${info.cost} mana">${info.cost}</b>`:''}</span><span class="card-detail">${detail}${zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
+  return `<button class="card" data-kind="${unit.kind}" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="card-art">${portrait(unit.kind)}${inHand?`<b class="mana-cost" aria-label="${info.cost} mana">${info.cost}</b>`:''}</span><span class="card-detail">${detail}${!inHand&&(unit.frozen||unit.freezeTurn)?' · Frozen':zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
 }
 function render(){
   if(!game) return;
@@ -66,17 +66,17 @@ function render(){
   const reacting=combat?.phase==='react'&&combat.canReact&&!busy;
   const active=game.active===game.seat && game.winner===null && !busy && !mine.eliminated && !combat;
   const outcome=game.winner===null?'':game.winner===game.seat?'You won!':game.players[game.winner].name+' won.';
-  const prompt=selected?'Choose an opposing target.':game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
+  const prompt=selected?.creatureOnly?'Choose an opposing creature.':selected?'Choose an opposing target.':game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
   const attacker=combat&&game.players[combat.attacker];
   const defender=combat&&game.players[combat.defender];
   const attackingCard=combat&&attacker.board.find(unit=>unit.id===combat.unit);
   const combatPanel=combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Waiting for combat reactions.'} <span id="combat-clock"></span></p>${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'';
-  const leaderPanel=mine.leader?`<section class="field leader"><div class="leader-art">${portrait(mine.leader)}</div><div><h2>Leader zone</h2><p>${cards[mine.leader].name} · ${leaders[mine.leader].style}</p><button class="outline" data-action="summon" ${active&&mine.mana>=mine.leaderCost&&!mine.board.some(unit=>unit.kind===mine.leader)?'':'disabled'}>Summon leader · ${mine.leaderCost} mana</button></div></section>`:'';
+  const leaderPanel=mine.leader?`<section class="field leader"><div class="leader-art">${portrait(mine.leader)}</div><div><h2>Leader zone</h2><p>${cards[mine.leader].name} · ${leaders[mine.leader].style} · ${cards[mine.leader].power} / ${cards[mine.leader].hp}</p>${cards[mine.leader].text?`<p>${cards[mine.leader].text}</p>`:''}<button class="outline" data-action="summon" ${active&&mine.mana>=mine.leaderCost&&!mine.board.some(unit=>unit.kind===mine.leader)?'':'disabled'}>Summon leader · ${mine.leaderCost} mana</button></div></section>`:'';
   const stats=(p,i)=>`<strong class="player-name">${p.leader?portrait(p.leader):''}${escape(p.name)}${i===game.seat?' · You':''}</strong><span>${p.eliminated?'Eliminated':game.winner===null&&game.active===i?'Taking turn':''}</span><span>♥ ${Math.max(0,p.life)} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span>`;
   const opponents=game.players.map((p,i)=>{
     if(i===game.seat) return '';
     const enabled=active&&selected&&!p.eliminated;
-    return `<section data-seat="${i}" class="field player-field ${game.active===i&&!outcome?'current-turn':''} ${p.eliminated?'eliminated':''}" aria-label="${escape(p.name)}’s battlefield"><div class="stats">${stats(p,i)}<button class="outline enemy-target" data-action="hero" data-opponent="${i}" ${enabled&&(game.rules===2||selected.type==='play'||!p.board.length)?'':'disabled'}>Target player</button></div><div class="cards">${p.eliminated?'Out of the match':p.board.map(unit=>card(unit,'enemy',enabled&&(game.rules!==2||selected.type==='play'),i)).join('')||'<span>No creatures in play</span>'}</div></section>`;
+    return `<section data-seat="${i}" class="field player-field ${game.active===i&&!outcome?'current-turn':''} ${p.eliminated?'eliminated':''}" aria-label="${escape(p.name)}’s battlefield"><div class="stats">${stats(p,i)}<button class="outline enemy-target" data-action="hero" data-opponent="${i}" ${enabled&&((game.rules===2||selected.type==='play'||!p.board.length)&&!selected.creatureOnly)?'':'disabled'}>Target player</button></div><div class="cards">${p.eliminated?'Out of the match':p.board.map(unit=>card(unit,'enemy',enabled&&(game.rules!==2||selected.type==='play'),i)).join('')||'<span>No creatures in play</span>'}</div></section>`;
   }).join('');
   const leave=outcome||mine.eliminated;
   arena.innerHTML=`<div class="bar"><h1>Battlefield</h1><button class="quiet" data-action="${leave?'leave':'concede'}" ${busy?'disabled':''}>${leave?'Back to lobby':'Concede'}</button></div>
@@ -139,9 +139,9 @@ arena.onclick=async event=>{
   if(zone==='mine' || zone==='hand'){
     const type=zone==='mine'?'attack':'play';
     const item=game.players[game.seat].hand.find(unit=>unit.id===id);
-    if(zone==='hand' && !cards[item.kind].damage) await move({type,id});
+    if(zone==='hand' && !cards[item.kind].damage && !cards[item.kind].freeze) await move({type,id});
     else{
-      selected=selected?.id===id?undefined:{type,id};
+      selected=selected?.id===id?undefined:{type,id,creatureOnly:zone==='hand'&&!!cards[item.kind].freeze};
       error='';
       render();
     }

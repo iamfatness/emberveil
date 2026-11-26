@@ -10,12 +10,22 @@ export const cards = {
   surge: {name:'Ash Surge',cost:1,reaction:'boost',text:'Give the attacker +2 power for this combat',icon:'✧'},
   tala: {name:'Tala, Ash Rider',cost:3,power:5,hp:2,icon:'♞'},
   vael: {name:'Vael, Dawn Keeper',cost:3,power:2,hp:6,icon:'⛨'},
-  neri: {name:'Neri, Veil Weaver',cost:3,power:3,hp:4,icon:'✦'}
+  neri: {name:'Neri, Veil Weaver',cost:3,power:3,hp:4,icon:'✦'},
+  sylva: {name:'Sylva, Thorn Regent',cost:3,power:2,hp:3,spawns:1,text:'Summon a 1 / 1 Briar Sprite',icon:'♣'},
+  orrun: {name:'Orrun, Forge Titan',cost:6,power:7,hp:6,icon:'♛'},
+  iskar: {name:'Iskar, Tide Oracle',cost:4,power:3,hp:4,draw:true,text:'Draw a card when summoned',icon:'◇'},
+  sprite: {name:'Briar Sprite',cost:0,power:1,hp:1,art:'briar',icon:'♣'},
+  briar: {name:'Briar Gathering',cost:2,spawns:2,text:'Summon two 1 / 1 Briar Sprites',icon:'♣'},
+  forge: {name:'Foundry Crystal',cost:2,ramp:true,text:'Increase mana capacity by 1, up to 10',icon:'◆'},
+  frost: {name:'Tidebind',cost:2,freeze:true,text:'Freeze a creature through its next turn',icon:'❄'}
 };
 export const leaders = {
   tala:{style:'Aggression',text:'Fast creatures and Ash Surge.',deck:{scout:6,wolf:5,drake:4,guard:2,spark:5,surge:6,veil:2}},
   vael:{style:'Defense',text:'Sturdy creatures, healing, and Silver Veil.',deck:{scout:3,guard:6,knight:6,drake:2,spark:2,ward:5,veil:6}},
-  neri:{style:'Spellcraft',text:'Wildfire and a mix of both reactions.',deck:{scout:4,guard:4,wolf:3,knight:3,spark:6,ward:2,veil:4,surge:4}}
+  neri:{style:'Spellcraft',text:'Wildfire and a mix of both reactions.',deck:{scout:4,guard:4,wolf:3,knight:3,spark:6,ward:2,veil:4,surge:4}},
+  sylva:{style:'Swarm',text:'Fill the battlefield with small creatures. Sylva brings a Briar Sprite with her.',deck:{scout:6,guard:4,wolf:4,briar:8,surge:4,veil:4}},
+  orrun:{style:'Ramp',text:'Build mana with Foundry Crystals, then summon drakes and a 7 / 6 leader.',deck:{scout:3,guard:4,knight:5,drake:6,forge:6,ward:3,veil:3}},
+  iskar:{style:'Control',text:'Freeze opposing creatures and protect your position. Iskar draws a card when summoned.',deck:{guard:5,knight:3,wolf:3,frost:7,spark:4,veil:6,ward:2}}
 };
 export function player(name, key, leader='tala') {
   const deck=Object.entries(leader?leaders[leader].deck:{scout:4,guard:4,wolf:4,knight:4,drake:4,spark:4,ward:4}).flatMap(([kind,count])=>Array.from({length:count},()=>({kind,id:crypto.randomUUID()})));
@@ -38,7 +48,12 @@ function beginTurn(game){
   const p=game.players[game.active];
   p.max=Math.min(10,p.max+1);
   p.mana=p.max;
-  p.board.forEach(unit=>{unit.ready=true;unit.exhausted=false;});
+  p.board.forEach(unit=>{
+    unit.freezeTurn=!!unit.frozen;
+    unit.ready=!unit.frozen;
+    unit.exhausted=!!unit.frozen;
+    if(unit.frozen) unit.frozen--;
+  });
   if(game.round===1) return;
   if(p.deck.length) p.hand.push(p.deck.shift());
   else eliminate(game,game.active,p.name+' ran out of cards.');
@@ -113,6 +128,15 @@ function respondToCombat(game,seat,data){
   combat.queue.shift();
   if(!combat.queue.length) resolveCombat(game);
 }
+function summonSprites(p,count){
+  let first;
+  for(let i=0;i<count;i++){
+    const sprite={kind:'sprite',id:crypto.randomUUID(),hp:1,ready:false};
+    first??=sprite;
+    p.board.push(sprite);
+  }
+  return first;
+}
 export function act(game, seat, data){
   game.effect=null;
   if(data.type==='start'){
@@ -151,6 +175,8 @@ export function act(game, seat, data){
     p.leaderCasts++;
     const unit={kind:p.leader,id:crypto.randomUUID(),hp:card.hp,ready:false};
     p.board.push(unit);
+    if(card.spawns) summonSprites(p,card.spawns);
+    if(card.draw && p.deck.length) p.hand.push(p.deck.shift());
     game.effect={type:'summon',seat,unit:unit.id};
     game.last=p.name+' summoned '+card.name+'.';
     return;
@@ -166,8 +192,16 @@ export function act(game, seat, data){
     if(card.reaction) throw Error('Save that card for combat.');
     if(card.cost>p.mana) throw Error('You need more mana.');
     if(card.damage && (!opponent || (data.target!=='hero' && !target))) throw Error('Choose an opposing target.');
+    if(card.freeze && !target) throw Error('Choose an opposing creature to freeze.');
     p.hand.splice(index,1);
     p.mana-=card.cost;
+    const sprite=card.spawns&&summonSprites(p,card.spawns);
+    if(card.ramp) p.max=Math.min(10,p.max+1);
+    if(card.freeze){
+      target.frozen=1;
+      target.ready=false;
+      target.exhausted=true;
+    }
     if(card.power) p.board.push({...unit,hp:card.hp,ready:false});
     if(card.heal) p.life=Math.min(20,p.life+card.heal);
     if(card.damage){
@@ -175,7 +209,9 @@ export function act(game, seat, data){
       else opponent.life-=card.damage;
     }
     game.last=p.name+' played '+card.name+'.';
-    game.effect=card.power?{type:'summon',seat,unit:unit.id}:card.heal?{type:'heal',seat}:{type:'boost',seat:enemySeat,unit:target?.id};
+    if(card.power||sprite) game.effect={type:'summon',seat,unit:sprite?.id??unit.id};
+    else if(card.heal||card.ramp) game.effect={type:'heal',seat};
+    else game.effect={type:card.freeze?'shield':'boost',seat:enemySeat,unit:target?.id};
   }else if(data.type==='attack'){
     const unit=p.board.find(unit=>unit.id===data.id && unit.ready);
     if(!unit) throw Error('That creature cannot attack.');
