@@ -1,4 +1,4 @@
-import {cards} from '/game.mjs';
+import {cards,MAX_PLAYERS} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -18,28 +18,36 @@ async function api(code,data){
 function escape(value){
   return String(value).replace(/[&<>"']/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[character]);
 }
-function card(unit,zone,enabled){
+function card(unit,zone,enabled,opponent){
   const info=cards[unit.kind];
   const detail=zone==='hand'?(info.damage?'Deal 3 damage':info.heal?'Heal 4 life':info.power+' / '+info.hp):info.power+' / '+unit.hp;
-  return `<button class="card" data-zone="${zone}" data-id="${unit.id}" data-selected="${selected?.id===unit.id}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="sigil" aria-hidden="true">${info.icon}</span><span>${zone==='hand'?info.cost+' mana · ':''}${detail}${zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
+  return `<button class="card" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="sigil" aria-hidden="true">${info.icon}</span><span>${zone==='hand'?info.cost+' mana · ':''}${detail}${zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
 }
 function render(){
   if(!game) return;
   lobby.hidden=true;
   arena.hidden=false;
-  if(game.players.length===1){
-    arena.innerHTML=`<section class="panel waiting"><h1>Waiting for a challenger</h1><p>Share your invite link or room code with a friend.</p><strong class="code">${room}</strong><button class="gold" data-action="copy">Copy invite link</button><p id="status" role="status">${escape(error)}</p><a href="/">Back to lobby</a></section>`;
+  if(!game.started){
+    const roster=game.players.map((p,i)=>`<li>${escape(p.name)}${i===0?' · Host':''}${i===game.seat?' · You':''}</li>`).join('');
+    const ready=game.players.length>=2;
+    arena.innerHTML=`<section class="panel waiting"><h1>Match lobby</h1><p>Share your invite link or room code with friends.</p><strong class="code">${room}</strong><div class="actions"><button class="outline" data-action="copy">Copy invite link</button>${game.seat===0?`<button class="gold" data-action="start" ${ready&&!busy?'':'disabled'}>Start match</button>`:''}</div><h2>${game.players.length} of ${MAX_PLAYERS} players</h2><ol class="roster">${roster}</ol><p id="status" role="status">${escape(error||(game.seat!==0?'Waiting for the host to start.':!ready?'At least two players are needed.':''))}</p><a href="/">Back to lobby</a></section>`;
     return;
   }
-  const mine=game.players[game.seat],enemy=game.players[1-game.seat];
-  const active=game.active===game.seat && game.winner===null && !busy;
-  const outcome=game.winner===null?'':game.winner===game.seat?'You won!':enemy.name+' won.';
-  const prompt=selected?'Choose an opposing target.':game.active===game.seat?'Your turn':enemy.name+'’s turn';
-  const stats=p=>`<strong>${escape(p.name)}</strong><span>♥ ${p.life} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span>`;
-  arena.innerHTML=`<div class="bar"><h1>Battlefield</h1><div class="actions"><button class="quiet" data-action="copy">Copy invite</button><button class="quiet" data-action="${outcome?'leave':'concede'}" ${busy?'disabled':''}>${outcome?'Back to lobby':'Concede'}</button></div></div>
-  <section class="field" aria-label="Opponent’s battlefield"><div class="stats">${stats(enemy)}<button class="outline enemy-target" data-action="hero" ${active&&selected&&(selected.type==='play'||!enemy.board.length)?'':'disabled'}>Target player</button></div><div class="cards">${enemy.board.map(unit=>card(unit,'enemy',active&&selected)).join('')||'<span>No opposing creatures</span>'}</div></section>
-  <p id="status" role="status">${escape(error||outcome||prompt)} ${game.last&&!error?' · '+escape(game.last):''}</p>
-  <section class="field" aria-label="Your battlefield"><div class="stats">${stats(mine)}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div><div class="cards">${mine.board.map(unit=>card(unit,'mine',active&&unit.ready)).join('')||'<span>No creatures in play</span>'}</div></section>
+  const mine=game.players[game.seat];
+  const active=game.active===game.seat && game.winner===null && !busy && !mine.eliminated;
+  const outcome=game.winner===null?'':game.winner===game.seat?'You won!':game.players[game.winner].name+' won.';
+  const prompt=selected?'Choose an opposing target.':game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
+  const stats=(p,i)=>`<strong>${escape(p.name)}${i===game.seat?' · You':''}</strong><span>${p.eliminated?'Eliminated':game.winner===null&&game.active===i?'Taking turn':''}</span><span>♥ ${Math.max(0,p.life)} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span>`;
+  const opponents=game.players.map((p,i)=>{
+    if(i===game.seat) return '';
+    const enabled=active&&selected&&!p.eliminated;
+    return `<section class="field ${p.eliminated?'eliminated':''}" aria-label="${escape(p.name)}’s battlefield"><div class="stats">${stats(p,i)}<button class="outline enemy-target" data-action="hero" data-opponent="${i}" ${enabled&&(selected.type==='play'||!p.board.length)?'':'disabled'}>Target player</button></div><div class="cards">${p.eliminated?'Out of the match':p.board.map(unit=>card(unit,'enemy',enabled,i)).join('')||'<span>No creatures in play</span>'}</div></section>`;
+  }).join('');
+  const leave=outcome||mine.eliminated;
+  arena.innerHTML=`<div class="bar"><h1>Battlefield</h1><button class="quiet" data-action="${leave?'leave':'concede'}" ${busy?'disabled':''}>${leave?'Back to lobby':'Concede'}</button></div>
+  <p id="status" role="status">${escape(error||outcome||(mine.eliminated?'You’re eliminated. '+prompt:prompt))} ${game.last&&!error?' · '+escape(game.last):''}</p>
+  <div class="opponents">${opponents}</div>
+  <section class="field" aria-label="Your battlefield"><div class="stats">${stats(mine,game.seat)}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div><div class="cards">${mine.board.map(unit=>card(unit,'mine',active&&unit.ready)).join('')||'<span>No creatures in play</span>'}</div></section>
   <section class="field" aria-label="Your hand"><strong>Your hand</strong><div class="cards">${mine.hand.map(unit=>card(unit,'hand',active&&cards[unit.kind].cost<=mine.mana)).join('')||'<span>Your hand is empty</span>'}</div></section>`;
 }
 function enter(state){
@@ -77,16 +85,17 @@ async function move(data){
 arena.onclick=async event=>{
   const button=event.target.closest('button');
   if(!button||button.disabled) return;
-  const {action,zone,id}=button.dataset;
+  const {action,zone,id,opponent}=button.dataset;
   if(action==='copy'){
     try{await navigator.clipboard.writeText(location.href);$('status').textContent='Invite link copied.';}
     catch{$('status').textContent='Share the URL from your address bar.';}
   }
   if(action==='leave') location.href='/';
+  if(action==='start') await move({type:'start'});
   if(action==='end') await move({type:'end'});
-  if(action==='concede' && confirm('Concede this duel?')) await move({type:'concede'});
-  if(action==='hero' && selected) await move({...selected,target:'hero'});
-  if(zone==='enemy' && selected) await move({...selected,target:id});
+  if(action==='concede' && confirm('Concede this match?')) await move({type:'concede'});
+  if(action==='hero' && selected) await move({...selected,target:'hero',opponent:Number(opponent)});
+  if(zone==='enemy' && selected) await move({...selected,target:id,opponent:Number(opponent)});
   if(zone==='mine' || zone==='hand'){
     const type=zone==='mine'?'attack':'play';
     const item=game.players[game.seat].hand.find(unit=>unit.id===id);

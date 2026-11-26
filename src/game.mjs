@@ -15,59 +15,93 @@ export function player(name, key) {
   }
   return {name,key,life:20,mana:0,max:0,board:[],hand:deck.splice(0,5),deck};
 }
-export function turn(game) {
+export const MAX_PLAYERS = 6;
+export const hasStarted = game => game.started ?? game.players.length >= 2;
+
+function eliminate(game, seat, message){
+  game.players[seat].eliminated=true;
+  game.last=message;
+  const remaining=game.players.flatMap((p,i)=>p.eliminated?[]:[i]);
+  if(remaining.length===1) game.winner=remaining[0];
+}
+function beginTurn(game){
   const p=game.players[game.active];
   p.max=Math.min(10,p.max+1);
   p.mana=p.max;
   p.board.forEach(unit=>unit.ready=true);
-  if(game.round>1){
-    if(p.deck.length) p.hand.push(p.deck.shift());
-    else game.winner=1-game.active;
-  }
+  if(game.round===1) return;
+  if(p.deck.length) p.hand.push(p.deck.shift());
+  else eliminate(game,game.active,p.name+' ran out of cards.');
+}
+function advance(game){
+  do{
+    do{
+      game.active=(game.active+1)%game.players.length;
+    }while(game.players[game.active].eliminated);
+    game.round++;
+    beginTurn(game);
+  }while(game.players[game.active].eliminated && game.winner===null);
 }
 export function act(game, seat, data){
-  if(game.players.length!==2 || game.winner!==null) throw Error('There is no active duel.');
-  if(data.type==='concede'){game.winner=1-seat;return;}
+  if(data.type==='start'){
+    if(hasStarted(game) || seat!==0 || game.players.length<2) throw Error('The host can start with at least two players.');
+    game.started=true;
+    beginTurn(game);
+    return;
+  }
+  if(!hasStarted(game) || game.winner!==null) throw Error('There is no active match.');
+  const p=game.players[seat];
+  if(p.eliminated) throw Error('You have been eliminated.');
+  if(data.type==='concede'){
+    eliminate(game,seat,p.name+' conceded.');
+    if(game.winner===null && game.active===seat) advance(game);
+    return;
+  }
   if(seat!==game.active) throw Error('Wait for your turn.');
-  const p=game.players[seat], enemy=game.players[1-seat];
   if(data.type==='end'){
-    game.active=1-seat;
-    game.round++;
-    turn(game);
-  }else if(data.type==='play'){
+    game.last='';
+    advance(game);
+    return;
+  }
+  const enemySeat=data.opponent ?? (game.players.length===2?1-seat:undefined);
+  const enemy=enemySeat!==seat && Number.isInteger(enemySeat)?game.players[enemySeat]:undefined;
+  const opponent=enemy && !enemy.eliminated?enemy:undefined;
+  const target=opponent?.board.find(unit=>unit.id===data.target);
+  if(data.type==='play'){
     const index=p.hand.findIndex(unit=>unit.id===data.id);
     if(index<0) throw Error('That card is unavailable.');
     const unit=p.hand[index], card=cards[unit.kind];
     if(card.cost>p.mana) throw Error('You need more mana.');
-    const target=enemy.board.find(unit=>unit.id===data.target);
-    if(card.damage && data.target!=='hero' && !target) throw Error('Choose an enemy target.');
+    if(card.damage && (!opponent || (data.target!=='hero' && !target))) throw Error('Choose an opposing target.');
     p.hand.splice(index,1);
     p.mana-=card.cost;
     if(card.power) p.board.push({...unit,hp:card.hp,ready:false});
     if(card.heal) p.life=Math.min(20,p.life+card.heal);
     if(card.damage){
       if(target) target.hp-=card.damage;
-      else enemy.life-=card.damage;
+      else opponent.life-=card.damage;
     }
     game.last=p.name+' played '+card.name+'.';
   }else if(data.type==='attack'){
     const unit=p.board.find(unit=>unit.id===data.id && unit.ready);
     if(!unit) throw Error('That creature cannot attack.');
-    const target=enemy.board.find(unit=>unit.id===data.target);
-    if(!target && (data.target!=='hero' || enemy.board.length)) throw Error('Attack an enemy creature first.');
+    if(!opponent) throw Error('Choose an opposing player.');
+    if(!target && (data.target!=='hero' || opponent.board.length)) throw Error('Attack a creature on that player’s battlefield first.');
     unit.ready=false;
     if(target){
       target.hp-=cards[unit.kind].power;
       unit.hp-=cards[target.kind].power;
-    }else enemy.life-=cards[unit.kind].power;
-    game.last=p.name+' attacked with '+cards[unit.kind].name+'.';
+    }else opponent.life-=cards[unit.kind].power;
+    game.last=p.name+' attacked '+opponent.name+' with '+cards[unit.kind].name+'.';
   }else throw Error('Unknown action.');
   p.board=p.board.filter(unit=>unit.hp>0);
-  enemy.board=enemy.board.filter(unit=>unit.hp>0);
-  if(enemy.life<=0) game.winner=seat;
+  if(opponent){
+    opponent.board=opponent.board.filter(unit=>unit.hp>0);
+    if(opponent.life<=0) eliminate(game,enemySeat,opponent.name+' was eliminated.');
+  }
 }
 export function view(game, seat, revision){
-  return {revision,seat,active:game.active,round:game.round,winner:game.winner,last:game.last,
-    players:game.players.map((p,i)=>({name:p.name,life:p.life,mana:p.mana,max:p.max,board:p.board,
+  return {revision,seat,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
+    players:game.players.map((p,i)=>({name:p.name,life:p.life,mana:p.mana,max:p.max,eliminated:!!p.eliminated,board:p.board,
       hand:i===seat?p.hand:undefined,handSize:p.hand.length,deckSize:p.deck.length}))};
 }

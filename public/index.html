@@ -1,20 +1,20 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="An online fantasy card duel for friends."><title>Emberveil — Card Duels</title><link rel="stylesheet" href="/style.css"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="An online fantasy card game for up to six friends."><title>Emberveil — Card Duels</title><link rel="stylesheet" href="/style.css"></head>
 <body>
 <header><a class="brand" href="/">✦ <span>EMBERVEIL<small>CARD DUELS</small></span></a><button id="rules" class="quiet">◇ &nbsp; How to play</button></header>
 <main id="lobby">
   <section class="hero">
     <div class="hero-copy"><div class="eyebrow"><span>◆</span> &nbsp; AN ONLINE FANTASY CARD GAME</div>
-    <h1>Emberveil</h1><p>Summon creatures, wield ancient spells, and challenge a friend to a duel.</p>
-    <div class="hero-detail">⚔ &nbsp; TWO-PLAYER DUELS</div></div>
+    <h1>Emberveil</h1><p>Summon creatures, wield ancient spells, and face your friends in a free-for-all.</p>
+    <div class="hero-detail">⚔ &nbsp; 2–6 PLAYERS</div></div>
   </section>
   <section class="rooms" aria-label="Duel lobby">
-    <form id="create" class="panel"><div class="tile">⚔</div><h2>Create a room</h2><p>Host a private duel and share your room code with a friend.</p><label for="host-name">Your name</label><input id="host-name" maxlength="22" placeholder="Enter your name" autocomplete="nickname"><button class="gold">Create room</button></form>
-    <form id="join" class="panel"><div class="tile">◇</div><h2>Join a room</h2><p>Enter your friend’s room code to join their duel.</p><label for="guest-code">Room code</label><input id="guest-code" required maxlength="8" placeholder="Enter room code" spellcheck="false"><label class="sr" for="guest-name">Your name</label><input id="guest-name" maxlength="22" placeholder="Your name (optional)" autocomplete="nickname"><button class="outline">Join room</button></form>
+    <form id="create" class="panel"><div class="tile">⚔</div><h2>Create a room</h2><p>Host a private match and share your room code with up to five friends.</p><label for="host-name">Your name</label><input id="host-name" maxlength="22" placeholder="Enter your name" autocomplete="nickname"><button class="gold">Create room</button></form>
+    <form id="join" class="panel"><div class="tile">◇</div><h2>Join a room</h2><p>Enter your friend’s room code to join their match.</p><label for="guest-code">Room code</label><input id="guest-code" required maxlength="8" placeholder="Enter room code" spellcheck="false"><label class="sr" for="guest-name">Your name</label><input id="guest-name" maxlength="22" placeholder="Your name (optional)" autocomplete="nickname"><button class="outline">Join room</button></form>
   </section>
   <p id="lobby-error" class="error" role="alert"></p>
   <footer><span>◆</span> EMBERVEIL <span>◆</span></footer>
 </main>
 <main id="arena" hidden></main>
-<dialog id="guide"><div class="tile">⚔</div><h2>How to play</h2><ol><li>Create a room and send its invite link to a friend. Each player starts with 20 life and a shuffled starter deck.</li><li>On your turn, draw a card and refill your mana. Your mana capacity grows by one each turn, up to ten. The first player skips their first draw.</li><li>Click a card to spend its mana cost. Wildfire asks you to pick an opposing creature or player. Dawnward restores up to four life.</li><li>Creatures can attack from your next turn. Select a creature and then its target. Creatures trade damage, which persists. Clear the opposing creatures to attack the player directly.</li><li>Win by reducing your opponent to zero life or when they run out of cards to draw.</li></ol><form method="dialog"><button class="gold">Back to game</button></form></dialog>
+<dialog id="guide"><div class="tile">⚔</div><h2>How to play</h2><ol><li>Create a room and share its invite link. The host starts the match once two to six players have joined. Each player starts with 20 life and a shuffled starter deck.</li><li>On your turn, draw a card and refill your mana. Your mana capacity grows by one each turn, up to ten. The first player skips their first draw.</li><li>Click a card to spend its mana cost. Wildfire asks you to pick an opposing creature or player. Dawnward restores up to four life.</li><li>Creatures can attack from your next turn. Select a creature and then its target. Creatures trade damage, which persists. Clear a player’s creatures to attack them directly.</li><li>Players are eliminated at zero life, when they run out of cards to draw, or when they concede. The last player standing wins.</li></ol><form method="dialog"><button class="gold">Back to game</button></form></dialog>
 <script type="module" src="/app.js"></script></body></html>
