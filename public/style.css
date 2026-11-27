@@ -73,3 +73,7 @@ body:has(#arena:not([hidden])){background:#13100f url('/art/arena.webp') center 
 .node.unlocked{border-color:#96704b;color:var(--ink);background:#251c16}
 .node button{font-size:.75rem;padding:.3rem .6rem;min-height:auto}
 .tree-panel small{display:block;margin-top:.5rem;color:var(--muted)}
+
+#guide h3{font:600 1rem Cinzel,Georgia,serif;margin:1rem 0 .3rem}
+#guide p{margin:.4rem 0;color:var(--muted);line-height:1.5}
+#guide form{margin-top:1.25rem}
