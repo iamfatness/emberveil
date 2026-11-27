@@ -63,3 +63,23 @@ test('threat is public and recalculates after an opponent develops the board',()
   g.players[2].board=[scout];
   assert.equal(view(g,1,0).threat,2);
 });
+
+test('every seat sees exactly the players who still owe a combat reaction',()=>{
+  const g=teams();
+  g.players[0].board=[{...scout}];
+  g.players[1].board=[{kind:'guard',id:'blocker',hp:3,ready:true}];
+  g.players[0].hand=[{kind:'surge',id:'surge'}];
+  g.players[1].hand=[{kind:'veil',id:'veil'}];
+  g.players[2].hand=[{kind:'veil',id:'last-veil'}];
+  act(g,0,{type:'attack-batch',opponent:1,ids:['scout']});
+  assert.equal(view(g,3,0).combat.pendingReactions,undefined);
+  act(g,1,{type:'blocks',blocks:[]});
+  for(let seat=0;seat<4;seat++) assert.deepEqual(view(g,seat,1).combat.pendingReactions,[0,1,2]);
+  act(g,1,{type:'pass'});
+  assert.deepEqual(view(g,3,2).combat.pendingReactions,[0,2]);
+  act(g,0,{type:'react',id:'surge',strike:'scout'});
+  assert.deepEqual(view(g,3,3).combat.pendingReactions,[2]);
+  assert.equal(view(g,3,3).players[2].hand,undefined);
+  act(g,2,{type:'pass'});
+  assert.equal(view(g,3,4).combat,null);
+});

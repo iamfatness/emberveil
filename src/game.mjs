@@ -904,7 +904,7 @@ function chapterOutcome(game){
 export function view(game, seat, revision){
   const combat=game.combat;
   const visibleCombat=combat&&{id:combat.id,strikes:combat.strikes,attacker:combat.attacker,defender:combat.defender,unit:combat.unit,blocker:combat.blocker,
-    phase:combat.phase,deadline:combat.deadline,canReact:combat.strikes?combat.queue?.includes(seat):combat.queue?.[0]===seat,boost:combat.boost,shield:combat.shield};
+    phase:combat.phase,deadline:combat.deadline,pendingReactions:combat.phase==='react'?[...combat.queue]:undefined,canReact:combat.strikes?combat.queue?.includes(seat):combat.queue?.[0]===seat,boost:combat.boost,shield:combat.shield};
   return {revision,seat,ranked:game.ranked,teamsPolitics:game.teamsPolitics,privateTable:game.privateTable,leaderDamageEnabled:game.leaderDamageEnabled,
     threat:tableThreat(game),objective:game.objective,truce:game.truce,truceOfferedTurn:game.truceOfferedTurn,chapter:game.chapter,
     episode:game.episode,difficulty:game.difficulty,priorOutcome:game.priorOutcome,chapterOutcome:chapterOutcome(game),

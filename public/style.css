@@ -315,3 +315,5 @@ body:has(#arena.match-live) #rules { padding: .3rem .65rem; }
   .match-live .card strong { padding: 1px 3px; }
   .seat-chip { min-height: 32px; }
 }
+
+.combat .reaction-waiting{color:var(--ink);overflow-wrap:anywhere}
