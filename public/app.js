@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -481,7 +481,45 @@ function landingPanel(active){
     </section>`;
 }
 
+function upperDoorPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['upper-door'];
+  const endings={
+    'door-opened':['Room at the Door','Sera opens the door the rest of the way. The last group files in. One of them asks where to set the kettle.'],
+    'stair-stocked':['Lamps on the Service Stair','Lamps burn on the service stair. The families come up with one hand on the rail. Sera holds the door for each of them.'],
+    detachment:['A Place to Wait','The last Sentinel backs out of the hall. Sera drags a bench to the door and calls for the next person.'],
+    lost:['The Door Closes','Sera pulls the last person out of the doorway. The hall goes dark. Someone on the stair cups a hand around a lamp.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const route=story?.route??upperDoorRoute(priorOutcome);
+  const goal=upperDoorGoal(difficulty);
+  const marks=story?.marks??0;
+  const label=route==='door'?'Groups admitted':'Supply bundles sent';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  const mine=game.players[game.seat];
+  if(route==='door'){
+    const guards=countDoorGuards(mine);
+    return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+      <p>${intro} The families who held at the landing gather by the door.</p>
+      <p>End your turn with at least ${upperDoorGuards} of your creatures available to block to admit one group. Admit ${goal} groups or defeat the Sentinels to win.</p>
+      ${progress}
+      ${active?`<p>Your creatures available to block · ${guards}${guards>=upperDoorGuards?' · End turn to admit a group.':''}</p>`:''}
+      </section>`;
+  }
+  const canSupply=active&&mine.hand.length&&story.channelTurn!==game.round&&mine.mana>=supplyCost;
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} ${priorOutcome==='lift-raised'?'The lift brought the families up to the service stair. People there ask for lamps and blankets.':'A voice on the service stair asks for a lamp.'}</p>
+    <p>Spend ${supplyCost} mana and discard a card to send one supply bundle. Send once per turn. Send ${goal} bundles or defeat the Sentinels to win.</p>
+    ${progress}
+    ${story?`${active&&mine.hand.length?`<label for="supply-card">Card to discard</label>
+      <select id="supply-card">${mine.hand.map(unit=>`<option value="${unit.id}">${cards[unit.kind].name}</option>`).join('')}</select>`:''}
+      <button class="outline" data-action="send-supplies" ${canSupply?'':'disabled'}>Send supplies · ${supplyCost} mana</button>`:''}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='upper-door') return upperDoorPanel(active);
   if(game.episode==='landing-bell') return landingPanel(active);
   if(game.episode==='lower-stair') return stairPanel(active);
   if(game.episode==='doors-at-dawn') return dawnPanel(active);
@@ -626,7 +664,9 @@ function render(){
     ${mine.choice.type==='oracle'?`<button class="outline" data-action="choose-card" data-choice="1" ${yourTurn?'':'disabled'}>Put on bottom</button>`:''}</section>`:'';
   const winner=game.players[game.winner];
   const outcome=game.winner===null?'':sameSide(mine,winner)?'Your team won!':game.mode&&game.mode!=='ffa'?teamName(game.mode,winner.team)+' won.':game.winner===game.seat?'You won!':winner.name+' won.';
-  const prompt=selected?.type==='read-record'?'Choose an opponent whose hand Neri will read.':attackIds.length?`Choose an opponent for ${attackIds.length} attacker${attackIds.length===1?'':'s'}.`:selected?.own?'Choose one of your creatures.':selected?.playerOnly?'Choose an opposing player.':selected?.creatureOnly?'Choose an opposing creature.':selected?'Choose an opposing target.':game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
+  const canAdmit=active&&game.episode==='upper-door'&&game.story?.route==='door'&&countDoorGuards(mine)>=upperDoorGuards;
+  const turnPrompt=canAdmit?'End turn to admit a group.':game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
+  const prompt=selected?.type==='read-record'?'Choose an opponent whose hand Neri will read.':attackIds.length?`Choose an opponent for ${attackIds.length} attacker${attackIds.length===1?'':'s'}.`:selected?.own?'Choose one of your creatures.':selected?.playerOnly?'Choose an opposing player.':selected?.creatureOnly?'Choose an opposing creature.':selected?'Choose an opposing target.':turnPrompt;
   const attacker=combat&&game.players[combat.attacker];
   const defender=combat&&game.players[combat.defender];
   const attackingCard=combat&&attacker.board.find(unit=>unit.id===combat.unit);
@@ -835,6 +875,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='send-supplies') await move({type:action,id:$('supply-card')?.value});
   if(action==='haul-lift') await move({type:action,steps:Number(button.dataset.steps),id:$('lift-hauler')?.value});
   if(action==='lift-grate'||action==='guide-family') await move({type:action,id:$('stair-guard')?.value});
   if(action==='read-names') await move({type:action,id:$('dawn-reader')?.value});

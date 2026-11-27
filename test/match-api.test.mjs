@@ -252,3 +252,19 @@ test('The Landing Bell uses the Lower Stair victory to choose its objective',asy
     assert.equal(started.data.story.marks,0);
   }
 });
+
+test('The Upper Door chooses its objective from the Landing Bell ending',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [
+    ['landing-held','door'],['lift-raised','supplies'],['detachment','supplies'],['families-safe','supplies'],[undefined,'supplies']
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'upper-door',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'upper-door');
+    assert.equal(room.priorOutcome,priorOutcome==='families-safe'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.marks,0);
+  }
+});

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { act, player, view } from '../src/game.mjs';
+import { act, expireCombat, player, view } from '../src/game.mjs';
 
 function chapter(difficulty, episode, priorOutcome, foundryKeyholder) {
   const game = {
@@ -758,6 +758,88 @@ test('both landing objectives keep the combat win and loss endings',()=>{
     act(won,1,{type:'concede'});
     assert.equal(view(won,0,0).chapterOutcome,'detachment');
     const lost=chapter('standard','landing-bell',outcome);
+    act(lost,0,{type:'concede'});
+    assert.equal(view(lost,0,0).chapterOutcome,'lost');
+  }
+});
+
+test('holding the landing opens the door route and rewards leaving two blockers available',()=>{
+  const game=chapter('standard','upper-door','landing-held');
+  const [ally,sentinel]=game.players;
+  const first={kind:'guard',id:'first',hp:3,ready:true};
+  const second={kind:'scout',id:'second',hp:1,ready:false,exhausted:true};
+  ally.board=[first,second];
+  sentinel.board=[{...first,id:'enemy-first'},{...first,id:'enemy-second'}];
+  assert.equal(game.story.route,'door');
+  assert.throws(()=>act(game,0,{type:'send-supplies'}),/unavailable/i);
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+
+  for(let groups=1;groups<=3;groups++){
+    second.ready=false;
+    endTurn(game);
+    assert.equal(game.story.marks,groups);
+    if(groups<3){
+      assert.equal(game.winner,null);
+      endTurn(game);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'door-opened');
+});
+
+test('the door admits a group on timeout but gives no credit for conceding with creatures in play',()=>{
+  const game=chapter('standard','upper-door','landing-held');
+  game.players.splice(1,0,{...player('Second ally','ally'),team:0});
+  const [host,ally]=game.players;
+  host.board=[{kind:'guard',id:'first',hp:3},{kind:'guard',id:'second',hp:3}];
+  ally.board=[{kind:'guard',id:'third',hp:3},{kind:'guard',id:'fourth',hp:3}];
+  assert.equal(expireCombat(game,game.turnDeadline),true);
+  assert.equal(game.story.marks,1);
+  endTurn(game);
+  assert.equal(game.story.marks,2);
+  endTurn(game);
+  act(game,0,{type:'concede'});
+  assert.equal(game.story.marks,2);
+  assert.equal(game.winner,null);
+  endTurn(game);
+  assert.equal(game.winner,1);
+  assert.equal(view(game,-1,0).chapterOutcome,'door-opened');
+});
+
+test('raising the lift opens the supply route and discards only the selected card',()=>{
+  const game=chapter('veteran','upper-door','lift-raised');
+  const [ally,sentinel]=game.players;
+  const supply={type:'send-supplies',id:'bundle'};
+  const spare={kind:'veil',id:'spare'};
+  assert.equal(game.story.route,'supplies');
+  sentinel.hand=[{kind:'veil',id:'opposing-card'}];
+  for(let bundles=1;bundles<=4;bundles++){
+    ally.hand=[spare,{kind:bundles%2?'guard':'spark',id:'bundle'}];
+    const mana=ally.mana;
+    assert.throws(()=>act(game,0,{...supply,id:'opposing-card'}),/choose a card from your hand/i);
+    assert.equal(ally.mana,mana);
+    act(game,0,supply);
+    assert.deepEqual(ally.hand,[spare]);
+    assert.equal(ally.mana,mana-1);
+    assert.equal(game.story.marks,bundles);
+    if(bundles<4){
+      assert.equal(game.winner,null);
+      assert.throws(()=>act(game,0,{...supply,id:'spare'}),/once per turn/i);
+      endTurn(game);
+      endTurn(game);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'stair-stocked');
+});
+
+test('both Upper Door paths keep the combat win and loss endings',()=>{
+  for(const outcome of ['landing-held','lift-raised']){
+    const won=chapter('standard','upper-door',outcome);
+    act(won,1,{type:'concede'});
+    assert.equal(view(won,0,0).chapterOutcome,'detachment');
+    const lost=chapter('standard','upper-door',outcome);
     act(lost,0,{type:'concede'});
     assert.equal(view(lost,0,0).chapterOutcome,'lost');
   }
