@@ -194,6 +194,7 @@ export const lore={
   'upper-door':{title:'The Upper Door',intro:'Sera opens the street door a hand’s width. The people waiting outside can see the lamplight. Inside, the Watch is coming down the hall.'},
   'common-table':{title:'The Common Table',intro:'Sera pulls a long table into the upper hall. Someone sets down a kettle. Beyond the door, the Watch is changing shifts.'},
   'first-petition':{title:'The First Petition',intro:'Sera brings a petition to the registry. It asks for a door no house can close alone. A Sentinel stands between her and the clerk.'},
+  'gate-charter':{title:'The Gate Charter',intro:'Neri unpins the old order from the gatehouse wall. Sera sets down a charter that asks for a door no house can close alone. The Watch is coming up the road.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -212,7 +213,8 @@ export const chapters={
   'landing-bell':{title:lore['landing-bell'].title,revision:1,next:'upper-door',outcomes:['landing-held','lift-raised','detachment','lost']},
   'upper-door':{title:lore['upper-door'].title,revision:1,next:'common-table',outcomes:['door-opened','stair-stocked','detachment','lost']},
   'common-table':{title:lore['common-table'].title,revision:1,next:'first-petition',outcomes:['delegates-seated','lamps-kept','detachment','lost']},
-  'first-petition':{title:lore['first-petition'].title,revision:1,outcomes:['petition-signed','copies-through','detachment','lost']}
+  'first-petition':{title:lore['first-petition'].title,revision:1,next:'gate-charter',outcomes:['petition-signed','copies-through','detachment','lost']},
+  'gate-charter':{title:lore['gate-charter'].title,revision:1,outcomes:['charter-ratified','copies-posted','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -284,6 +286,11 @@ export const firstPetitionRoute=outcome=>outcome==='lamps-kept'?'runners':'petit
 export const firstPetitionGoal=(route,difficulty)=>route==='petition'?(difficulty==='veteran'?8:6):(difficulty==='veteran'?4:3);
 export const maxSignatureSupport=3;
 export const signatureSupport=(player,unit)=>Math.min(maxSignatureSupport,unitPower(player,unit));
+
+export const gateCharterRoute=outcome=>outcome==='copies-through'?'copies':'hearing';
+export const gateCharterGoal=(route,difficulty)=>(route==='hearing'?2:3)+(difficulty==='veteran'?1:0);
+export const charterHearingCost=2;
+export const canCarryCharterCopy=(player,unit)=>unit.ready&&!unit.exhausted&&unit.kind!==player.leader&&unit.kind!=='sprite';
 
 export const objectiveCost=2;
 export const objectiveGoal=3;
@@ -359,7 +366,7 @@ function endTurn(game){
 
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
-const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
+const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition','gate-charter'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
 
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
@@ -748,8 +755,55 @@ function sendPetitionRunner(game,seat){
   }
 }
 
+function callCharterHearing(game,seat){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='gate-charter'||story?.route!=='hearing'||p.bot) throw Error('The charter hearing is unavailable.');
+  if(story.charterHearing) throw Error('A charter hearing is already open.');
+  if(p.mana<charterHearingCost) throw Error('You need more mana.');
+  p.mana-=charterHearingCost;
+  story.charterHearing='called';
+  game.last=p.name+' called a hearing on the charter.';
+}
+
+function advanceCharterHearing(game,player){
+  const {story}=game;
+  if(game.episode!=='gate-charter'||!story?.charterHearing) return;
+  if(player.bot){
+    story.charterHearing='watch';
+    return;
+  }
+  if(story.charterHearing!=='watch') return;
+  delete story.charterHearing;
+  story.marks++;
+  game.last='The charter hearing held through the Watch.';
+  if(story.marks===gateCharterGoal(story.route,game.difficulty)){
+    story.ending='charter-ratified';
+    game.winner=game.active;
+  }
+}
+
+function postCharterCopy(game,seat,id){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='gate-charter'||story?.route!=='copies'||p.bot) throw Error('Posting copies is unavailable.');
+  if(story.channelTurn===game.round) throw Error('You can post a copy once per turn.');
+  const index=p.board.findIndex(unit=>unit.id===id&&canCarryCharterCopy(p,unit));
+  if(index<0) throw Error('Choose a ready creature card you played from hand.');
+  const [{kind}]=p.board.splice(index,1);
+  p.hand.push({kind,id});
+  story.channelTurn=game.round;
+  story.marks++;
+  game.last=p.name+' sent a creature to post a copy of the charter.';
+  if(story.marks===gateCharterGoal(story.route,game.difficulty)){
+    story.ending='copies-posted';
+    game.winner=seat;
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
+  advanceCharterHearing(game,p);
   keepTableLamp(game,p);
   if(game.winner!==null) return;
   game.attacked=false;
@@ -845,6 +899,10 @@ function finishCombatDamage(game,combat,leaderLethal,directDamage){
   }
   advanceDawnCopies(game,combat,directDamage);
   holdLanding(game,combat,directDamage);
+  if(game.episode==='gate-charter'&&game.story?.charterHearing&&attacker.bot&&!defender.bot&&directDamage>0){
+    delete game.story.charterHearing;
+    game.last+=' The charter hearing broke up.';
+  }
   if(runnerCanPass) sendPetitionRunner(game,attacker.bot?combat.defender:combat.attacker);
 }
 function resolveCombat(game){
@@ -1063,6 +1121,7 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='gate-charter') game.story.route=gateCharterRoute(game.priorOutcome);
       if(game.episode==='first-petition') game.story.route=firstPetitionRoute(game.priorOutcome);
       if(game.episode==='common-table'){
         game.story.route=commonTableRoute(game.priorOutcome);
@@ -1171,6 +1230,14 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='call-hearing'){
+    callCharterHearing(game,seat);
+    return;
+  }
+  if(data.type==='post-copy'){
+    postCharterCopy(game,seat,data.id);
     return;
   }
   if(data.type==='sign-petition'){

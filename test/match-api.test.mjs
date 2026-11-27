@@ -300,3 +300,19 @@ test('The First Petition selects its route from the Common Table ending',async()
     assert.equal(started.data.story.marks,0);
   }
 });
+
+test('The Gate Charter uses the First Petition ending to select its route',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [
+    ['petition-signed','hearing'],['copies-through','copies'],['detachment','hearing'],['delegates-seated','hearing'],[undefined,'hearing']
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'gate-charter',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'gate-charter');
+    assert.equal(room.priorOutcome,priorOutcome==='delegates-seated'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.marks,0);
+  }
+});

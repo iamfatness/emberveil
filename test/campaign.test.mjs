@@ -1034,3 +1034,110 @@ test('both petition routes retain the ordinary battle endings',()=>{
     assert.equal(view(lost,0,0).chapterOutcome,'lost');
   }
 });
+
+test('a charter hearing must survive every Sentinel turn and a reaction can save it',()=>{
+  const game=chapter('standard','gate-charter','petition-signed');
+  game.players.push({...player('Second Sentinel',null,'orrun'),bot:true,team:1});
+  const [ally,first,second]=game.players;
+  const call={type:'call-hearing'};
+  assert.equal(game.story.route,'hearing');
+  assert.throws(()=>act(game,0,call),/more mana/i);
+  endTurn(game);
+  endTurn(game);
+  endTurn(game);
+  ally.hand=[];
+  act(game,0,call);
+  assert.equal(ally.mana,0);
+  assert.throws(()=>act(game,0,call),/already open/i);
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+  second.board=[{kind:'scout',id:'late',hp:1,ready:true}];
+  act(game,2,{type:'attack-batch',opponent:0,ids:['late']});
+  assert.equal(ally.life,18);
+  assert.equal(game.story.charterHearing,undefined);
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+
+  ally.hand=[{kind:'veil',id:'veil'}];
+  first.board=[{kind:'scout',id:'early',hp:1}];
+  act(game,0,call);
+  endTurn(game);
+  act(game,1,{type:'attack-batch',opponent:0,ids:['early']});
+  act(game,0,{type:'react',id:'veil',strike:'early'});
+  assert.equal(ally.life,18);
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+  assert.equal(game.story.marks,1);
+  act(game,0,call);
+  endTurn(game);
+  endTurn(game);
+  endTurn(game);
+  assert.equal(view(game,-1,0).chapterOutcome,'charter-ratified');
+});
+
+test('another ally can take a turn while a charter hearing is pending',()=>{
+  const game=chapter('standard','gate-charter','petition-signed');
+  game.players.splice(1,0,{...player('Second ally','ally'),team:0});
+  const call={type:'call-hearing'};
+  endTurn(game);
+  endTurn(game);
+  endTurn(game);
+  act(game,0,call);
+  endTurn(game);
+  assert.equal(game.active,1);
+  assert.equal(game.story.marks,0);
+  assert.throws(()=>act(game,1,call),/already open/i);
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+  assert.equal(game.story.marks,1);
+});
+
+test('posting copies returns real creature cards to hand and progress persists across turns',()=>{
+  const game=chapter('veteran','gate-charter','copies-through');
+  const ally=game.players[0];
+  const post=id=>act(game,0,{type:'post-copy',id});
+  ally.board=[
+    {kind:'tala',id:'leader',hp:2,ready:true},
+    {kind:'sprite',id:'token',hp:1,ready:true},
+    {kind:'guard',id:'runner',hp:2,ready:true}
+  ];
+  ally.hand=[];
+  assert.equal(game.story.route,'copies');
+  assert.throws(()=>act(game,0,{type:'call-hearing'}),/unavailable/i);
+  assert.throws(()=>post('leader'),/creature card/i);
+  assert.throws(()=>post('token'),/creature card/i);
+  for(let copies=1;copies<=4;copies++){
+    const mana=ally.mana;
+    post('runner');
+    assert.equal(ally.mana,mana);
+    assert.equal(ally.board.some(unit=>unit.id==='runner'),false);
+    assert.deepEqual(ally.hand.filter(unit=>unit.id==='runner'),[{kind:'guard',id:'runner'}]);
+    assert.equal(game.story.marks,copies);
+    if(copies<4){
+      assert.equal(game.winner,null);
+      assert.throws(()=>post('runner'),/once per turn/i);
+      endTurn(game);
+      endTurn(game);
+      act(game,0,{type:'play',id:'runner'});
+      assert.throws(()=>post('runner'),/ready creature card/i);
+      endTurn(game);
+      endTurn(game);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'copies-posted');
+});
+
+test('both Gate Charter routes retain the ordinary battle endings',()=>{
+  for(const outcome of ['petition-signed','copies-through']){
+    const won=chapter('standard','gate-charter',outcome);
+    act(won,1,{type:'concede'});
+    assert.equal(view(won,0,0).chapterOutcome,'detachment');
+    const lost=chapter('standard','gate-charter',outcome);
+    act(lost,0,{type:'concede'});
+    assert.equal(view(lost,0,0).chapterOutcome,'lost');
+  }
+});

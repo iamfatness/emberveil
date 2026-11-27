@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -585,7 +585,49 @@ function firstPetitionPanel(active){
     </section>`;
 }
 
+function gateCharterPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['gate-charter'];
+  const endings={
+    'charter-ratified':['The Charter Holds','Neri pins the charter where the old order hung. Sera puts both keys on the table. The first person through the door has neither.'],
+    'copies-posted':['The Lane Has Its Orders','Copies hang on every door in the lane. When the Watch comes for the one at the gatehouse, a woman across the road starts reading hers aloud.'],
+    detachment:['The Gatehouse Is Quiet','The Watch leaves the road. Neri puts a stone on the charter and waits for the people who came to hear it.'],
+    lost:['The Old Order Goes Back Up','The Watch pins the old order back to the wall. Sera folds the charter and leaves it under the clerk’s cup.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const route=story?.route??gateCharterRoute(priorOutcome);
+  const goal=gateCharterGoal(route,difficulty);
+  const marks=story?.marks??0;
+  const label=route==='hearing'?'Hearings completed':'Copies posted';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  const mine=game.players[game.seat];
+  if(route==='hearing'){
+    const open=story?.charterHearing;
+    const canCall=active&&!open&&mine.mana>=charterHearingCost;
+    return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+      <p>${intro} ${priorOutcome==='petition-signed'?'The clerk brings the signed petition to the gatehouse.':'The clerk opens the gatehouse for a hearing.'}</p>
+      <p>Pay ${charterHearingCost} mana to call a hearing. It completes on the first allied turn after the Watch, if no ally takes combat damage from a Sentinel. Complete ${goal} hearings or defeat the Sentinels to win.</p>
+      ${progress}
+      ${open?`<p><strong>The hearing is open.</strong> ${open==='watch'?'Keep the defending player safe until the next allied turn.':'The hearing has to last through the next Watch turns.'}</p>`:''}
+      ${story?`<button class="outline" data-action="call-hearing" ${canCall?'':'disabled'}>Call a hearing · ${charterHearingCost} mana</button>`:''}
+      </section>`;
+  }
+
+  const carriers=mine.board.filter(unit=>canCarryCharterCopy(mine,unit));
+  const canPost=active&&carriers.length&&story.channelTurn!==game.round;
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} The runners have already put the petition in the hands of the people on the lane. Those people ask for a copy of the charter.</p>
+    <p>Return a ready creature card from your battlefield to your hand to post a copy. Post one copy per turn. Post ${goal} copies or defeat the Sentinels to win.</p>
+    ${progress}
+    ${story?`${active&&carriers.length?`<label for="charter-carrier">Creature to post a copy</label>
+      <select id="charter-carrier">${carriers.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:''}
+      <button class="outline" data-action="post-copy" ${canPost?'':'disabled'}>Post a copy</button>`:''}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='gate-charter') return gateCharterPanel(active);
   if(game.episode==='first-petition') return firstPetitionPanel(active);
   if(game.episode==='common-table') return commonTablePanel();
   if(game.episode==='upper-door') return upperDoorPanel(active);
@@ -752,7 +794,9 @@ function render(){
     `<p>Landing · ${game.story.marks} / ${landingGoal('hold',game.difficulty)} attacks stopped. Assign a blocker and prevent all damage to the defending player.</p>`:'';
   const petitionHint=game.episode==='first-petition'&&game.story?.route==='runners'?
     `<p>Runners · ${game.story.marks} / ${firstPetitionGoal('runners',game.difficulty)} through. Defeat a Sentinel creature in this combat to send one runner.</p>`:'';
-  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${landingHint}${petitionHint}${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
+  const charterHint=game.episode==='gate-charter'&&game.story?.charterHearing&&attacker?.bot?
+    '<p>A charter hearing is open. Prevent combat damage to the defending player to keep it open.</p>':'';
+  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${landingHint}${petitionHint}${charterHint}${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
   const combatPanel=batchPanel||(combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Reaction window.'}</p>${reactionWaiting}${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'');
   const teamLabel=p=>game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team):'';
   const status=error||outcome||(mine.eliminated?'You’re eliminated.':blocking?'Assign blockers.':reacting?'Play a reaction from your hand or pass.':mine.choice?'Choose a card.':prompt);
@@ -947,6 +991,8 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='call-hearing') await move({type:action});
+  if(action==='post-copy') await move({type:action,id:$('charter-carrier')?.value});
   if(action==='sign-petition') await move({type:action,id:$('petition-signer')?.value});
   if(action==='send-supplies') await move({type:action,id:$('supply-card')?.value});
   if(action==='haul-lift') await move({type:action,steps:Number(button.dataset.steps),id:$('lift-hauler')?.value});
