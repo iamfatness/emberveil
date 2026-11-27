@@ -257,3 +257,60 @@ test('Veteran refuge route heals the party and takes four advances before delive
   assert.equal(game.winner,0);
   assert.equal(rescuer.life,16);
 });
+
+test('a warned furnace blast can be vented once for the whole party',()=>{
+  const game=chapter('standard','foundry');
+  const party=game.players[0];
+  party.board=[{kind:'scout',id:'guard',hp:1}];
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  assert.equal(game.story.heatIn,3);
+  cycle();cycle();
+  assert.equal(game.story.heatIn,1);
+  act(game,0,{type:'foundry',job:'vent'});
+  assert.equal(party.mana,2);
+  assert.throws(()=>act(game,0,{type:'foundry',job:'vent'}),/already been vented/);
+  cycle();
+  assert.equal(party.board.length,1);
+  assert.equal(game.story.heatIn,3);
+  assert.equal(game.story.vented,false);
+  cycle();cycle();endTurn(game);
+  assert.equal(party.board.length,0);
+});
+
+test('repairing the Foundry requires a chosen ready creature and a decision about the keys',()=>{
+  const game=chapter('standard','foundry');
+  const party=game.players[0];
+  party.board=[{kind:'guard',id:'helper',hp:3}];
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  cycle();
+  assert.throws(()=>act(game,0,{type:'foundry',job:'keys',holder:'workers'}),/Finish the repairs/);
+  assert.throws(()=>act(game,0,{type:'foundry',job:'repair',id:'unknown'}),/ready creature/);
+  assert.equal(party.mana,2);
+  for(let i=0;i<3;i++){
+    act(game,0,{type:'foundry',job:'repair',id:'helper'});
+    assert.equal(party.board[0].exhausted,true);
+    assert.throws(()=>act(game,0,{type:'foundry',job:'repair',id:'helper'}),/once per turn/);
+    if(i<2) cycle();
+  }
+  assert.equal(game.winner,null);
+  act(game,0,{type:'foundry',job:'keys',holder:'workers'});
+  assert.equal(game.winner,0);
+  assert.equal(view(game,0,0).chapterOutcome,'workers');
+});
+
+test('Veteran heats faster and the court can hold the keys after the fourth repair',()=>{
+  const game=chapter('veteran','foundry');
+  assert.equal(game.story.heatIn,2);
+  game.players[0].board=[{kind:'guard',id:'helper',hp:3}];
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  cycle();
+  for(let i=0;i<4;i++){
+    act(game,0,{type:'foundry',job:'repair',id:'helper'});
+    if(i<3){
+      assert.throws(()=>act(game,0,{type:'foundry',job:'keys',holder:'court'}),/Finish the repairs/);
+      cycle();
+    }
+  }
+  act(game,0,{type:'foundry',job:'keys',holder:'court'});
+  assert.equal(view(game,0,0).chapterOutcome,'court');
+});

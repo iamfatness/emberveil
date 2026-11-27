@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -210,7 +210,50 @@ function escortPanel(active){
     <p>${finale?'Reach the court, then deliver the order on a later turn, or defeat the Sentinels.':'Complete one route or defeat the Sentinels.'} The first step commits the party. Your guard cannot attack or block until it readies.</p>
     ${tide}${pressure?`<p><strong>${pressure}</strong>${recent}</p>`:''}${guardOptions}${objectives}</section>`;
 }
+function foundryPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const scene=lore.foundry;
+  const briefings={
+    direct:'The court’s seal is fresh. The foreman asks whether it will open this door too.',
+    refuges:'The refuge keepers send a fitter who knows the furnace by sound.',
+    detachment:'Orrun brings a hinge from the last Sentinel that fell at the court.'
+  };
+  const endings={
+    workers:['The Workers Keep the Keys','Orrun leaves the keys on the foreman’s bench. The court gets a copy of every order. The workers keep the right to stop the furnace.'],
+    court:['The Court Holds the Keys','The officer takes the keys up the basalt steps. Before the Watch can take a new order, the court must read it aloud where the workers can hear.'],
+    detachment:['The Furnace Goes Dark','With the Sentinels down, Orrun shuts the furnace. The keys stay in the lock until the workers and the court meet.'],
+    lost:['The Door Holds','The Sentinel closes the door. Behind it, the workers keep their hands on the old machinery and wait for the heat to pass.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const {repairs,damage}=foundryDifficulty(difficulty);
+  const mine=game.players[game.seat];
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const completed=story?.marks===repairs;
+  const canVent=active&&story?.heatIn===1&&!story.vented&&mine.mana>=foundryRules.ventCost;
+  const canRepair=active&&ready.length&&story.channelTurn!==game.round&&mine.mana>=foundryRules.repairCost;
+  const heat=story?`<p><strong>${story.vented?'The next blast is vented.':story.heatIn===1?'Blast on the next Watch turn.':`Blast in ${story.heatIn} Watch turns.`}</strong>
+    An unvented blast deals ${damage} damage to each allied creature.</p>`:'';
+  let actions='';
+  if(completed){
+    actions=`<p>The repairs are complete. Who holds the keys?</p><div class="result-actions">
+      <button class="outline" data-action="foundry" data-job="keys" data-holder="workers" ${active?'':'disabled'}>Give keys to the workers</button>
+      <button class="outline" data-action="foundry" data-job="keys" data-holder="court" ${active?'':'disabled'}>Give keys to the court</button></div>`;
+  }else if(story){
+    const workers=active&&ready.length?`<label for="foundry-worker">Creature for repairs</label>
+      <select id="foundry-worker">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:'';
+    actions=`${workers}<div class="result-actions">
+      <button class="outline" data-action="foundry" data-job="repair" ${canRepair?'':'disabled'}>Repair furnace · ${foundryRules.repairCost} mana</button>
+      <button class="outline" data-action="foundry" data-job="vent" ${canVent?'':'disabled'}>Vent next blast · ${foundryRules.ventCost} mana</button></div>`;
+  }
+  return `<section class="field story" aria-label="Match story"><h2>${scene.title}</h2><p>${scene.intro} ${briefings[priorOutcome]??''}</p>
+    <p>Finish the repairs and hand over the keys, or defeat the Sentinels. Repair once per turn using one ready creature. It cannot attack or block until it readies.</p>
+    <div class="ward-progress"><progress value="${story?.marks??0}" max="${repairs}" aria-label="Furnace repairs"></progress><strong>${story?.marks??0} / ${repairs} repairs</strong></div>
+    ${heat}${actions}</section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='foundry') return foundryPanel(active);
   if(Object.hasOwn(routesByEpisode,game.episode)) return escortPanel(active);
   if(game.episode==='accord') return accordPanel(active);
   const story=game.story;
@@ -309,7 +352,7 @@ function renderBattlefield(markup){
   if(arena.contains(focus)){
     if(focus.id) focusSelector='#'+CSS.escape(focus.id);
     else{
-      const keys=['id','zone','action','panel','opponent','branch','gate','choice','scroll'].filter(key=>focus.dataset[key]!==undefined);
+      const keys=['id','zone','action','panel','opponent','branch','gate','choice','job','holder','scroll'].filter(key=>focus.dataset[key]!==undefined);
       focusSelector=keys.map(key=>`[data-${key}="${CSS.escape(focus.dataset[key])}"]`).join('');
     }
   }
@@ -400,17 +443,18 @@ function render(){
   const result=outcome?`<section class="field"><h2>${escape(outcome)}</h2>${storyPanel()}
     <div class="result-actions"><a class="quiet" href="/?watch=1&amp;room=${room}">Share final battlefield</a>
     ${chapterActions}</div></section>`:'';
+  const foundryWarning=game.episode==='foundry'&&game.story?.heatIn===1&&!game.story.vented;
   const panels=[
     {id:'combat',label:'Combat',html:combatPanel},
     {id:'choice',label:'Card choice',html:choicePanel},
     {id:'tree',label:`Tree · ${mine.growth}`,html:treePanel(mine,active)},
-    {id:'story',label:game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
+    {id:'story',label:foundryWarning?'Story · Blast next':game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
     {id:'table',label:game.truce?.to===game.seat&&!game.truce.accepted?'Truce offer':'Table',html:table},
     {id:'result',label:'Result',html:result}
   ].filter(panel=>panel.html);
   const panel=panels.find(panel=>panel.id===openPanel);
   const tabs=panels.map(item=>`<button class="panel-toggle" data-action="panel" data-panel="${item.id}" aria-expanded="${panel===item}"
-    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'?'data-attention':''}>${item.label}</button>`).join('');
+    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'||item.id==='story'&&foundryWarning?'data-attention':''}>${item.label}</button>`).join('');
   const hand=mine.hand.map(unit=>{
     const reaction=cards[unit.kind].reaction;
     const early=active&&!game.attacked&&mine.board.length&&earlyReaction(mine,unit.kind);
@@ -548,6 +592,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='foundry') await move({type:action,job:button.dataset.job,holder:button.dataset.holder,id:$('foundry-worker')?.value});
   if(action==='escort') await move({type:action,route:button.dataset.route,id:$('escort-guard')?.value});
   if(action==='fortify') await move({type:action,gate:button.dataset.gate});
   if(action==='proposeTruce') await move({type:action,opponent:Number(opponent)});

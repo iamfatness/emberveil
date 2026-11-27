@@ -184,6 +184,7 @@ export const lore={
   'missing-names':{title:'The Missing Names',intro:'On the Cinder Road, Vael hears a name he etched into his shield a century ago. The witness recognizes his voice. Before either can speak again, a Sentinel column reaches the bend.'},
   tide:{title:'The Tide That Waited',intro:'At Stillwater Harbor, Iskar can still name the boats he held the tide for. Now the Watch is approaching the customs house. The original release order lies inside, and the water is beginning to move.'},
   'open-accord':{title:'The Open Accord',intro:'At the Basalt Court, both houses have signed a new order. The Watch is still enforcing the old seal. The party must get the signed order to the court’s command bell before the gates close again.'},
+  foundry:{title:'Keys to the Foundry',intro:'Orrun finds the furnace still lit. The workers kept it burning through the long Watch. Now the court has sent an officer for the keys, and a Sentinel stands in the doorway with the old order.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -192,7 +193,8 @@ export const chapters={
   accord:{title:lore.accord.title,revision:1,next:'missing-names',outcomes:['sun','moon','column','gates-fell']},
   'missing-names':{title:lore['missing-names'].title,revision:1,next:'tide',outcomes:['witnesses','testimony','detachment']},
   tide:{title:lore.tide.title,revision:1,next:'open-accord',outcomes:['causeway','tidal-stair','detachment']},
-  'open-accord':{title:lore['open-accord'].title,revision:1}
+  'open-accord':{title:lore['open-accord'].title,revision:1,next:'foundry',outcomes:['direct','refuges','detachment']},
+  foundry:{title:lore.foundry.title,revision:1}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -211,6 +213,14 @@ export const routesByEpisode={'missing-names':escortRoutes,tide:harborRoutes,'op
 export const routeGoal=(route,difficulty)=>route.steps+(difficulty==='veteran'?1:0);
 
 export const previousChapter=episode=>episode&&Object.keys(chapters).find(id=>chapters[id].next===episode);
+
+export const foundryRules={
+  repairCost:2,
+  ventCost:1,
+  standard:{repairs:3,interval:3,damage:1},
+  veteran:{repairs:4,interval:2,damage:2}
+};
+export const foundryDifficulty=difficulty=>difficulty==='veteran'?foundryRules.veteran:foundryRules.standard;
 
 export const objectiveCost=2;
 export const objectiveGoal=3;
@@ -292,7 +302,7 @@ function eliminate(game, seat, message){
   const remaining=game.players.flatMap((p,i)=>p.eliminated?[]:[i]);
   if(remaining.length&&remaining.every(i=>allies(game,i,remaining[0]))){
     game.winner=remaining[0];
-    if(game.story&&Object.hasOwn(routesByEpisode,game.episode)) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
+    if(game.story&&(game.episode==='foundry'||Object.hasOwn(routesByEpisode,game.episode))) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
   }
 }
 const firstSentinelTurn=game=>game.active===game.players.findIndex(p=>p.bot&&!p.eliminated);
@@ -347,6 +357,59 @@ function advanceCourtThreat(game){
   }
 }
 
+function advanceFoundry(game){
+  const story=game.story;
+  if(game.episode!=='foundry'||!story||!firstSentinelTurn(game)||--story.heatIn>0) return;
+  const {interval,damage}=foundryDifficulty(game.difficulty);
+  story.heatIn=interval;
+  if(story.vented){
+    story.vented=false;
+    return;
+  }
+  story.lastBlast=game.round;
+  for(const ally of game.players){
+    if(ally.bot||ally.eliminated) continue;
+    ally.board.forEach(unit=>{unit.hp-=damage;});
+    removeFallen(ally);
+  }
+}
+
+function workFoundry(game,seat,data){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='foundry'||!story||p.bot) throw Error('The Foundry is unavailable.');
+  const {repairs}=foundryDifficulty(game.difficulty);
+  if(data.job==='keys'){
+    if(story.marks<repairs) throw Error('Finish the repairs before handing over the keys.');
+    if(!['workers','court'].includes(data.holder)) throw Error('Choose who will hold the keys.');
+    story.ending=data.holder;
+    game.winner=seat;
+    game.last=p.name+' handed over the Foundry keys.';
+    return;
+  }
+  if(data.job==='vent'){
+    if(story.heatIn!==1) throw Error('Vent the furnace when the blast is due.');
+    if(story.vented) throw Error('The furnace has already been vented.');
+    if(p.mana<foundryRules.ventCost) throw Error('You need more mana.');
+    p.mana-=foundryRules.ventCost;
+    story.vented=true;
+    game.last=p.name+' vented the furnace.';
+    return;
+  }
+  if(data.job!=='repair') throw Error('Choose a Foundry action.');
+  if(story.channelTurn===game.round) throw Error('You can repair once per turn.');
+  if(story.marks>=repairs) throw Error('The repairs are complete.');
+  if(p.mana<foundryRules.repairCost) throw Error('You need more mana.');
+  const guard=p.board.find(unit=>unit.id===data.id&&unit.ready&&!unit.exhausted);
+  if(!guard) throw Error('Choose a ready creature.');
+  p.mana-=foundryRules.repairCost;
+  guard.ready=false;
+  guard.exhausted=true;
+  story.channelTurn=game.round;
+  story.marks++;
+  game.last=story.marks===repairs?'The repairs are complete. Choose who will hold the keys.':p.name+' repaired the furnace.';
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
   game.attacked=false;
@@ -378,6 +441,7 @@ function beginTurn(game){
   advanceEscortThreat(game);
   advanceTide(game);
   advanceCourtThreat(game);
+  advanceFoundry(game);
   if(game.winner!==null) return;
   if(hasNode(p,'shelter',2)&&!p.board.length) p.life=Math.min(20,p.life+2);
   if(hasNode(p,'witness',2)&&livingOpponents(game,game.active).some(other=>other.board.length>p.board.length)) drawCard(p);
@@ -652,6 +716,7 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='foundry') game.story.heatIn=foundryDifficulty(game.difficulty).interval;
       if(game.episode==='tide') Object.assign(game.story,{tide:'high',tideIn:highTideTurns(game)});
       if((!game.episode||game.episode==='watch')&&Object.hasOwn(watchDifficulties,game.difficulty)) game.story.pulseIn=watchDifficulties[game.difficulty].interval;
     }
@@ -739,6 +804,10 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='foundry'){
+    workFoundry(game,seat,data);
     return;
   }
   if(data.type==='escort'){
@@ -1011,7 +1080,7 @@ function chapterOutcome(game){
   if(game.winner==null||!game.chapter||!game.story) return undefined;
   const lost=game.players[game.winner].bot;
   if(game.episode==='accord') return lost?'gates-fell':game.story.gateHeld?game.story.gate:'column';
-  if(Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
+  if(game.episode==='foundry'||Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
   return game.story.marks===wardMarks?(lost?'ward-restored-loss':'ward-restored'):(lost?'vault-lost':'lantern');
 }
 

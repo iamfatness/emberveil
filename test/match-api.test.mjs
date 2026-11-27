@@ -146,3 +146,17 @@ test('all five chapters start in order and accept only outcomes from the precedi
   const unrelated=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'open-accord',priorOutcome:'sun'});
   assert.equal(unrelated.data.priorOutcome,undefined);
 });
+
+test('the Foundry opens after the finale and accepts its outcome without changing other chapters',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'foundry',priorOutcome:'refuges',difficulty:'veteran',leader:'orrun',botCount:1});
+  const started=await call(room.code,host,{type:'start',revision:room.revision});
+  assert.equal(started.status,200);
+  assert.equal(started.data.episode,'foundry');
+  assert.equal(started.data.priorOutcome,'refuges');
+  assert.equal(started.data.story.heatIn,2);
+  assert.equal(started.data.story.pulseIn,undefined);
+  const earlyVent=await call(room.code,host,{type:'foundry',job:'vent',revision:started.data.revision});
+  assert.equal(earlyVent.status,400);
+  assert.match(earlyVent.data.error,/when the blast is due/);
+});
