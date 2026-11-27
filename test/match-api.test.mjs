@@ -268,3 +268,19 @@ test('The Upper Door chooses its objective from the Landing Bell ending',async()
     assert.equal(started.data.story.marks,0);
   }
 });
+
+test('The Common Table chooses its objective from the Upper Door ending',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [
+    ['door-opened','seats'],['stair-stocked','lamps'],['detachment','lamps'],['lift-raised','lamps'],[undefined,'lamps']
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'common-table',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'common-table');
+    assert.equal(room.priorOutcome,priorOutcome==='lift-raised'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.marks,0);
+  }
+});

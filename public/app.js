@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -518,7 +518,40 @@ function upperDoorPanel(active){
     </section>`;
 }
 
+function commonTablePanel(){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['common-table'];
+  const endings={
+    'delegates-seated':['A Place at the Table','The last delegate pulls up a chair. Sera sets down a cup and asks who wants to speak first. A woman from the stair puts both hands on the table.'],
+    'lamps-kept':['The Lamps Stay Lit','The lamps last through the change of Watch. By the time the kettle boils, someone has moved the chairs away from the wall and around the table.'],
+    detachment:['The Hall Goes Quiet','The boots fall still. Sera rights an overturned chair and sets a cup beside it.'],
+    lost:['The Chairs Are Empty','The Watch clears the hall. Someone takes the kettle with them. Sera hears it knock against the stair rail.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const route=story?.route??commonTableRoute(priorOutcome);
+  const goal=commonTableGoal(difficulty);
+  const marks=story?.marks??0;
+  const label=route==='seats'?'Delegates seated':'Lamps kept lit';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  if(route==='seats'){
+    const delegates=story?.delegates.map(kind=>cards[kind].name)??[];
+    return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+      <p>${intro} The families who crossed the street door have brought chairs.</p>
+      <p>Play creature cards or summon leaders to seat delegates. Each name seats one delegate for the whole party. Seat ${goal} delegates or defeat the Sentinels to win.</p>
+      ${progress}
+      ${delegates.length?`<p>Already seated · ${new Intl.ListFormat('en').format(delegates)}</p>`:''}
+      </section>`;
+  }
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} ${priorOutcome==='stair-stocked'?'The families from the service stair set their lamps on the table.':'Sera sets a spare lamp on the table.'}</p>
+    <p>Keep a lamp lit by starting your turn with a creature on your battlefield and at least ${lampReserve} unspent mana before it refills. Tend ${goal} lamps or defeat the Sentinels to win.</p>
+    ${progress}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='common-table') return commonTablePanel();
   if(game.episode==='upper-door') return upperDoorPanel(active);
   if(game.episode==='landing-bell') return landingPanel(active);
   if(game.episode==='lower-stair') return stairPanel(active);
@@ -665,7 +698,8 @@ function render(){
   const winner=game.players[game.winner];
   const outcome=game.winner===null?'':sameSide(mine,winner)?'Your team won!':game.mode&&game.mode!=='ffa'?teamName(game.mode,winner.team)+' won.':game.winner===game.seat?'You won!':winner.name+' won.';
   const canAdmit=active&&game.episode==='upper-door'&&game.story?.route==='door'&&countDoorGuards(mine)>=upperDoorGuards;
-  const turnPrompt=canAdmit?'End turn to admit a group.':game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
+  const canKeepLamp=active&&game.episode==='common-table'&&game.story?.route==='lamps'&&mine.mana>=lampReserve&&mine.board.length;
+  const turnPrompt=canAdmit?'End turn to admit a group.':canKeepLamp?`Keep ${lampReserve} mana through the Watch to tend a lamp.`:game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
   const prompt=selected?.type==='read-record'?'Choose an opponent whose hand Neri will read.':attackIds.length?`Choose an opponent for ${attackIds.length} attacker${attackIds.length===1?'':'s'}.`:selected?.own?'Choose one of your creatures.':selected?.playerOnly?'Choose an opposing player.':selected?.creatureOnly?'Choose an opposing creature.':selected?'Choose an opposing target.':turnPrompt;
   const attacker=combat&&game.players[combat.attacker];
   const defender=combat&&game.players[combat.defender];

@@ -844,3 +844,110 @@ test('both Upper Door paths keep the combat win and loss endings',()=>{
     assert.equal(view(lost,0,0).chapterOutcome,'lost');
   }
 });
+
+test('the Common Table seats different creature and leader names through normal play',()=>{
+  const game=chapter('standard','common-table','door-opened');
+  const ally=game.players[0];
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  ally.hand=[
+    {kind:'scout',id:'first'},
+    {kind:'scout',id:'duplicate'},
+    {kind:'briar',id:'spell'},
+    {kind:'guard',id:'second'}
+  ];
+  assert.equal(game.story.route,'seats');
+  act(game,0,{type:'play',id:'first'});
+  assert.deepEqual(game.story.delegates,['scout']);
+  cycle();
+  act(game,0,{type:'play',id:'spell'});
+  assert.deepEqual(game.story.delegates,['scout']);
+  assert.equal(ally.board.filter(unit=>unit.kind==='sprite').length,2);
+  cycle();
+  act(game,0,{type:'play',id:'duplicate'});
+  assert.equal(game.story.marks,1);
+  act(game,0,{type:'play',id:'second'});
+  assert.deepEqual(game.story.delegates,['scout','guard']);
+  cycle();
+  act(game,0,{type:'summon'});
+  const record=view(game,-1,0);
+  assert.deepEqual(record.story.delegates,['scout','guard','tala']);
+  assert.equal(record.chapterOutcome,'delegates-seated');
+});
+
+test('Veteran counts four unique seats shared across allies, excluding Sentinel names',()=>{
+  const game=chapter('veteran','common-table','door-opened');
+  game.players.splice(1,0,{...player('Second ally','ally'),team:0,leader:'vael'});
+  const [host,ally,sentinel]=game.players;
+  host.hand=[{kind:'scout',id:'host-scout'},{kind:'guard',id:'host-guard'}];
+  ally.hand=[{kind:'scout',id:'ally-scout'},{kind:'guard',id:'ally-guard'}];
+  sentinel.hand=[{kind:'scout',id:'sentinel-scout'}];
+
+  act(game,0,{type:'play',id:'host-scout'});
+  endTurn(game);
+  act(game,1,{type:'play',id:'ally-scout'});
+  endTurn(game);
+  act(game,2,{type:'play',id:'sentinel-scout'});
+  assert.deepEqual(game.story.delegates,['scout']);
+  endTurn(game);
+  act(game,0,{type:'play',id:'host-guard'});
+  endTurn(game);
+  act(game,1,{type:'play',id:'ally-guard'});
+  assert.deepEqual(game.story.delegates,['scout','guard']);
+  endTurn(game);
+  endTurn(game);
+  act(game,0,{type:'summon'});
+  assert.equal(game.winner,null);
+  endTurn(game);
+  act(game,1,{type:'summon'});
+  assert.equal(game.winner,1);
+  assert.equal(view(game,-1,0).chapterOutcome,'delegates-seated');
+});
+
+test('stocked stair lamps count before mana refills and require a surviving creature',()=>{
+  const game=chapter('standard','common-table','stair-stocked');
+  const [ally,sentinel]=game.players;
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  assert.equal(game.story.route,'lamps');
+  assert.equal(game.story.marks,0);
+  cycle();
+  ally.hand=[{kind:'scout',id:'one'}];
+  act(game,0,{type:'play',id:'one'});
+  cycle();
+  assert.equal(ally.mana,3);
+  assert.equal(game.story.marks,0);
+
+  ally.hand=[{kind:'scout',id:'two'},{kind:'veil',id:'veil'}];
+  act(game,0,{type:'play',id:'two'});
+  sentinel.board=[{kind:'scout',id:'attacker',hp:1}];
+  endTurn(game);
+  act(game,1,{type:'attack-batch',opponent:0,ids:['attacker']});
+  act(game,0,{type:'blocks',blocks:[]});
+  act(game,0,{type:'react',id:'veil',strike:'attacker'});
+  assert.equal(ally.mana,1);
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+
+  const survivors=ally.board;
+  ally.board=[];
+  cycle();
+  assert.equal(game.story.marks,0);
+  ally.board=survivors;
+  for(let lamps=1;lamps<=3;lamps++){
+    endTurn(game);
+    assert.equal(game.story.marks,lamps-1);
+    endTurn(game);
+    assert.equal(game.story.marks,lamps);
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'lamps-kept');
+});
+
+test('the Common Table keeps the combat endings for both routes',()=>{
+  for(const outcome of ['door-opened','stair-stocked']){
+    const won=chapter('standard','common-table',outcome);
+    act(won,1,{type:'concede'});
+    assert.equal(view(won,0,0).chapterOutcome,'detachment');
+    const lost=chapter('standard','common-table',outcome);
+    act(lost,0,{type:'concede'});
+    assert.equal(view(lost,0,0).chapterOutcome,'lost');
+  }
+});

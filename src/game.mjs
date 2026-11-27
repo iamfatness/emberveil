@@ -192,6 +192,7 @@ export const lore={
   'lower-stair':{title:'The Lower Stair',intro:'From below the grate, someone calls a name Vael etched on his shield. Families wait on the lower stair. A Sentinel rests its hand on the chain.'},
   'landing-bell':{title:'The Landing Bell',intro:'Orrun pulls the bell rope at the landing. Below him, a lift hangs in the dark. Above him, boots come down the steps.'},
   'upper-door':{title:'The Upper Door',intro:'Sera opens the street door a hand’s width. The people waiting outside can see the lamplight. Inside, the Watch is coming down the hall.'},
+  'common-table':{title:'The Common Table',intro:'Sera pulls a long table into the upper hall. Someone sets down a kettle. Beyond the door, the Watch is changing shifts.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -208,7 +209,8 @@ export const chapters={
   'doors-at-dawn':{title:lore['doors-at-dawn'].title,revision:1,next:'lower-stair',outcomes:['names-read','copies-read','detachment','lost']},
   'lower-stair':{title:lore['lower-stair'].title,revision:1,next:'landing-bell',outcomes:['families-safe','detachment','lost']},
   'landing-bell':{title:lore['landing-bell'].title,revision:1,next:'upper-door',outcomes:['landing-held','lift-raised','detachment','lost']},
-  'upper-door':{title:lore['upper-door'].title,revision:1,outcomes:['door-opened','stair-stocked','detachment','lost']}
+  'upper-door':{title:lore['upper-door'].title,revision:1,next:'common-table',outcomes:['door-opened','stair-stocked','detachment','lost']},
+  'common-table':{title:lore['common-table'].title,revision:1,outcomes:['delegates-seated','lamps-kept','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -271,6 +273,10 @@ export const upperDoorGoal=difficulty=>difficulty==='veteran'?4:3;
 export const upperDoorGuards=2;
 export const supplyCost=1;
 export const countDoorGuards=player=>player.board.filter(unit=>!unit.exhausted).length;
+
+export const commonTableRoute=outcome=>outcome==='door-opened'?'seats':'lamps';
+export const commonTableGoal=difficulty=>difficulty==='veteran'?4:3;
+export const lampReserve=2;
 
 export const objectiveCost=2;
 export const objectiveGoal=3;
@@ -346,7 +352,7 @@ function endTurn(game){
 
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
-const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
+const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
 
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
@@ -682,8 +688,35 @@ function sendSupplies(game,seat,id){
   }
 }
 
+function seatDelegate(game,seat,kind){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='common-table'||story?.route!=='seats'||p.bot||game.winner!==null||story.delegates.includes(kind)) return;
+  story.delegates.push(kind);
+  story.marks=story.delegates.length;
+  game.last+=' A delegate took a seat.';
+  if(story.marks===commonTableGoal(game.difficulty)){
+    story.ending='delegates-seated';
+    game.winner=seat;
+  }
+}
+
+function keepTableLamp(game,player){
+  const {story}=game;
+  if(game.episode!=='common-table'||story?.route!=='lamps'||game.winner!==null||player.bot||player.eliminated||
+    player.mana<lampReserve||!player.board.length) return;
+  story.marks++;
+  game.last=player.name+' kept a lamp lit through the Watch.';
+  if(story.marks===commonTableGoal(game.difficulty)){
+    story.ending='lamps-kept';
+    game.winner=game.active;
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
+  keepTableLamp(game,p);
+  if(game.winner!==null) return;
   game.attacked=false;
   if(game.rules>=3) game.turnDeadline=Date.now()+game.turnSeconds*1000;
   p.max=Math.min(10,p.max+1+(p.keyManaBonus?1:0));
@@ -994,6 +1027,10 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='common-table'){
+        game.story.route=commonTableRoute(game.priorOutcome);
+        if(game.story.route==='seats') game.story.delegates=[];
+      }
       if(game.episode==='upper-door') game.story.route=upperDoorRoute(game.priorOutcome);
       if(game.episode==='landing-bell') game.story.route=landingRoute(game.priorOutcome);
       if(game.episode==='lower-stair') Object.assign(game.story,stairHelp(game.priorOutcome),{grateOpen:false});
@@ -1254,6 +1291,7 @@ export function act(game, seat, data){
     });
     game.effect={type:'summon',seat,unit:unit.id};
     game.last=p.name+' summoned '+card.name+'.';
+    seatDelegate(game,seat,unit.kind);
     return;
   }
   if(data.type==='attack-batch'){
@@ -1318,6 +1356,7 @@ export function act(game, seat, data){
     if(card.power||sprite) game.effect={type:'summon',seat,unit:sprite?.id??unit.id};
     else if(card.heal||card.ramp) game.effect={type:'heal',seat};
     else game.effect={type:card.freeze?'shield':'boost',seat:enemySeat,unit:target?.id};
+    if(card.power) seatDelegate(game,seat,unit.kind);
   }else if(data.type==='attack'){
     if(game.rules>=3) throw Error('Declare your attackers together.');
     const unit=p.board.find(unit=>unit.id===data.id && unit.ready);
