@@ -219,3 +219,20 @@ test('The Doors at Dawn uses the stored Ash Register custody to select the objec
     assert.equal(started.data.story.hearingIn,route==='court'?6:undefined);
   }
 });
+
+test('The Lower Stair remembers where The Doors at Dawn ended',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,braced,marks] of [
+    ['names-read',true,0],['copies-read',false,1],['detachment',false,0],['court-record',false,0]
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'lower-stair',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'lower-stair');
+    assert.equal(room.priorOutcome,priorOutcome==='court-record'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.grateBraced,braced);
+    assert.equal(started.data.story.grateOpen,false);
+    assert.equal(started.data.story.marks,marks);
+  }
+});

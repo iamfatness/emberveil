@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -408,7 +408,45 @@ function dawnPanel(active){
     </section>`;
 }
 
+function stairPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['lower-stair'];
+  const briefings={
+    'names-read':'The gatekeeper heard the names in court. She brings a brace to hold the grate.',
+    'copies-read':'Guides heard the names at the shelters. They have already brought one family up.',
+    detachment:'The Watch fell back at dawn. Vael followed the chain down alone.',
+    lost:'Vael takes the lower stair while the Watch holds the doors above.'
+  };
+  const endings={
+    'families-safe':['Above the Grate','The last family comes up into the light. One of them asks Vael to take a name off his shield. “You can find me at the door now.”'],
+    detachment:['The Chain Goes Quiet','The Watch leaves the chain. Vael takes hold of it and calls down the stair. Someone calls back.'],
+    lost:['The Grate Falls','The grate strikes stone. Vael hears a hand on the other side and puts his hand where he can hear it.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const {grateBraced,marks}=story??stairHelp(priorOutcome);
+  const open=story?.grateOpen;
+  const goal=stairGoal(difficulty);
+  const mine=game.players[game.seat];
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const canAct=active&&ready.length;
+  const canLift=canAct&&!open&&mine.mana>=stairCosts.lift;
+  const canGuide=canAct&&open&&story.channelTurn!==game.round&&mine.mana>=stairCosts.guide;
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2><p>${intro}</p>
+    ${briefings[priorOutcome]?`<p>${briefings[priorOutcome]}</p>`:''}
+    <p>Lift the grate, then guide a family through. Rescue ${goal} families or defeat the Sentinels to win.</p>
+    <p><strong>The grate is ${open?'open':'closed'}.</strong> ${grateBraced?'Once lifted, it stays open until a family passes.':'Once lifted, it drops when a family passes or the Watch takes its next turn.'}</p>
+    <div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="Families rescued"></progress><strong>Families rescued · ${marks} / ${goal}</strong></div>
+    ${story?`${canAct?`<label for="stair-guard">Creature to ${open?'guide a family':'lift the grate'}</label>
+      <select id="stair-guard">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:''}
+      <button class="outline" data-action="lift-grate" ${canLift?'':'disabled'}>Lift the grate · ${stairCosts.lift} mana</button>
+      <button class="outline" data-action="guide-family" ${canGuide?'':'disabled'}>Guide a family · ${stairCosts.guide} mana</button>`:''}
+    <small>Each action exhausts a ready creature. Guide one family per turn.</small>
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='lower-stair') return stairPanel(active);
   if(game.episode==='doors-at-dawn') return dawnPanel(active);
   if(game.episode==='ash-register') return registerPanel(active);
   if(game.episode==='third-seal') return archivePanel(active);
@@ -603,6 +641,7 @@ function render(){
   const result=outcome?`<section class="field"><h2>${escape(outcome)}</h2>${storyPanel()}
     <div class="result-actions"><a class="quiet" href="/?watch=1&amp;room=${room}">Share final battlefield</a>
     ${chapterActions}</div></section>`:'';
+  const grateWarning=game.episode==='lower-stair'&&game.story?.grateOpen&&!game.story.grateBraced;
   const hearingWarning=game.episode==='doors-at-dawn'&&game.story?.hearingIn===1;
   const archiveWarning=game.episode==='third-seal'&&game.story?.archiveIn===1&&game.story.route!=='witness';
   const orchardWarning=game.episode==='orchard'&&game.story?.patrolIn===1&&!game.story.sheltered[game.story.patrol];
@@ -611,13 +650,13 @@ function render(){
     {id:'combat',label:'Combat',html:combatPanel},
     {id:'choice',label:'Card choice',html:choicePanel},
     {id:'tree',label:`Tree · ${mine.growth}`,html:treePanel(mine,active)},
-    {id:'story',label:hearingWarning?'Story · Hearing closes next':archiveWarning?'Story · Bell next':orchardWarning?'Story · Sweep next':foundryWarning?'Story · Blast next':game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
+    {id:'story',label:grateWarning?'Story · Grate open':hearingWarning?'Story · Hearing closes next':archiveWarning?'Story · Bell next':orchardWarning?'Story · Sweep next':foundryWarning?'Story · Blast next':game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
     {id:'table',label:game.truce?.to===game.seat&&!game.truce.accepted?'Truce offer':'Table',html:table},
     {id:'result',label:'Result',html:result}
   ].filter(panel=>panel.html);
   const panel=panels.find(panel=>panel.id===openPanel);
   const tabs=panels.map(item=>`<button class="panel-toggle" data-action="panel" data-panel="${item.id}" aria-expanded="${panel===item}"
-    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'||item.id==='story'&&(foundryWarning||orchardWarning||archiveWarning||hearingWarning)?'data-attention':''}>${item.label}</button>`).join('');
+    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'||item.id==='story'&&(foundryWarning||orchardWarning||archiveWarning||hearingWarning||grateWarning)?'data-attention':''}>${item.label}</button>`).join('');
   const hand=mine.hand.map(unit=>{
     const reaction=cards[unit.kind].reaction;
     const early=active&&!game.attacked&&mine.board.length&&earlyReaction(mine,unit.kind);
@@ -757,6 +796,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='lift-grate'||action==='guide-family') await move({type:action,id:$('stair-guard')?.value});
   if(action==='read-names') await move({type:action,id:$('dawn-reader')?.value});
   if(action==='record-page') await move({type:action,page:button.dataset.page,id:$('register-scribe')?.value});
   if(action==='place-register') await move({type:action,keeper:button.dataset.keeper});

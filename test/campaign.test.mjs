@@ -580,3 +580,100 @@ test('finishing the last shelter reading with a lethal attack keeps the story en
   assert.equal(sentinel.eliminated,true);
   assert.equal(view(game,0,0).chapterOutcome,'copies-read');
 });
+
+test('court readers send a brace that holds the grate open across Watch turns',()=>{
+  const game=chapter('standard','lower-stair','names-read');
+  const ally=game.players[0];
+  const lift={type:'lift-grate',id:'guard'};
+  const guide={type:'guide-family',id:'guard'};
+  ally.board=[{kind:'guard',id:'guard',hp:3}];
+  assert.equal(game.story.marks,0);
+  assert.equal(game.story.grateBraced,true);
+  assert.throws(()=>act(game,0,guide),/lift the grate/i);
+  for(let families=1;families<=3;families++){
+    endTurn(game);
+    endTurn(game);
+    const beforeLift=ally.mana;
+    act(game,0,lift);
+    assert.equal(ally.mana,beforeLift-2);
+    assert.equal(ally.board[0].exhausted,true);
+    assert.throws(()=>act(game,0,lift),/already open/i);
+    endTurn(game);
+    assert.equal(game.story.grateOpen,true);
+    endTurn(game);
+    const beforeGuide=ally.mana;
+    act(game,0,guide);
+    assert.equal(ally.mana,beforeGuide-1);
+    assert.equal(game.story.grateOpen,false);
+    assert.equal(game.story.marks,families);
+    if(families===1) assert.throws(()=>act(game,0,guide),/one family per turn/i);
+  }
+  assert.equal(view(game,0,0).chapterOutcome,'families-safe');
+});
+
+test('shelter guides rescue the first family and the unbraced grate drops at the next Watch turn',()=>{
+  const game=chapter('veteran','lower-stair','copies-read');
+  const ally=game.players[0];
+  const lift={type:'lift-grate',id:'lifter'};
+  const guide={type:'guide-family',id:'guide'};
+  assert.equal(game.story.marks,1);
+  assert.equal(game.story.grateBraced,false);
+  ally.board=[{kind:'guard',id:'lifter',hp:3},{kind:'guard',id:'guide',hp:3}];
+  endTurn(game);
+  endTurn(game);
+  act(game,0,lift);
+  endTurn(game);
+  assert.equal(game.story.grateOpen,false);
+  assert.equal(game.story.marks,1);
+  endTurn(game);
+  for(let families=2;families<=4;families++){
+    act(game,0,lift);
+    assert.throws(()=>act(game,0,{...guide,id:'lifter'}),/ready creature/i);
+    act(game,0,guide);
+    assert.equal(game.story.marks,families);
+    if(families<4){
+      assert.equal(game.winner,null);
+      endTurn(game);
+      endTurn(game);
+    }
+  }
+  assert.equal(view(game,0,0).chapterOutcome,'families-safe');
+});
+
+test('two allies can split the work before the Watch and spectators preserve the outcome',()=>{
+  const game=chapter('standard','lower-stair','detachment');
+  game.players.splice(1,0,{...player('Second ally','ally'),team:0});
+  const [host,ally]=game.players;
+  const lift={type:'lift-grate',id:'lifter'};
+  const guide={type:'guide-family',id:'guide'};
+  host.board=[{kind:'guard',id:'lifter',hp:3}];
+  ally.board=[{kind:'guard',id:'guide',hp:3}];
+  assert.equal(game.story.marks,0);
+  assert.equal(game.story.grateBraced,false);
+  endTurn(game);
+  endTurn(game);
+  endTurn(game);
+  for(let families=1;families<=3;families++){
+    act(game,0,lift);
+    assert.throws(()=>act(game,1,guide),/wait for your turn/i);
+    endTurn(game);
+    assert.equal(game.story.grateOpen,true);
+    act(game,1,guide);
+    assert.equal(game.story.marks,families);
+    if(families<3){
+      endTurn(game);
+      endTurn(game);
+    }
+  }
+  assert.equal(game.winner,1);
+  assert.equal(view(game,-1,0).chapterOutcome,'families-safe');
+});
+
+test('the stair battle retains the ordinary combat win and loss endings',()=>{
+  const won=chapter('standard','lower-stair','copies-read');
+  act(won,1,{type:'concede'});
+  assert.equal(view(won,0,0).chapterOutcome,'detachment');
+  const lost=chapter('standard','lower-stair','names-read');
+  act(lost,0,{type:'concede'});
+  assert.equal(view(lost,0,0).chapterOutcome,'lost');
+});
