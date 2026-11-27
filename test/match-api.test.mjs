@@ -284,3 +284,19 @@ test('The Common Table chooses its objective from the Upper Door ending',async()
     assert.equal(started.data.story.marks,0);
   }
 });
+
+test('The First Petition selects its route from the Common Table ending',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [
+    ['delegates-seated','petition'],['lamps-kept','runners'],['detachment','petition'],['stair-stocked','petition'],[undefined,'petition']
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'first-petition',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'first-petition');
+    assert.equal(room.priorOutcome,priorOutcome==='stair-stocked'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.marks,0);
+  }
+});

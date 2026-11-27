@@ -193,6 +193,7 @@ export const lore={
   'landing-bell':{title:'The Landing Bell',intro:'Orrun pulls the bell rope at the landing. Below him, a lift hangs in the dark. Above him, boots come down the steps.'},
   'upper-door':{title:'The Upper Door',intro:'Sera opens the street door a hand’s width. The people waiting outside can see the lamplight. Inside, the Watch is coming down the hall.'},
   'common-table':{title:'The Common Table',intro:'Sera pulls a long table into the upper hall. Someone sets down a kettle. Beyond the door, the Watch is changing shifts.'},
+  'first-petition':{title:'The First Petition',intro:'Sera brings a petition to the registry. It asks for a door no house can close alone. A Sentinel stands between her and the clerk.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -210,7 +211,8 @@ export const chapters={
   'lower-stair':{title:lore['lower-stair'].title,revision:1,next:'landing-bell',outcomes:['families-safe','detachment','lost']},
   'landing-bell':{title:lore['landing-bell'].title,revision:1,next:'upper-door',outcomes:['landing-held','lift-raised','detachment','lost']},
   'upper-door':{title:lore['upper-door'].title,revision:1,next:'common-table',outcomes:['door-opened','stair-stocked','detachment','lost']},
-  'common-table':{title:lore['common-table'].title,revision:1,outcomes:['delegates-seated','lamps-kept','detachment','lost']}
+  'common-table':{title:lore['common-table'].title,revision:1,next:'first-petition',outcomes:['delegates-seated','lamps-kept','detachment','lost']},
+  'first-petition':{title:lore['first-petition'].title,revision:1,outcomes:['petition-signed','copies-through','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -277,6 +279,11 @@ export const countDoorGuards=player=>player.board.filter(unit=>!unit.exhausted).
 export const commonTableRoute=outcome=>outcome==='door-opened'?'seats':'lamps';
 export const commonTableGoal=difficulty=>difficulty==='veteran'?4:3;
 export const lampReserve=2;
+
+export const firstPetitionRoute=outcome=>outcome==='lamps-kept'?'runners':'petition';
+export const firstPetitionGoal=(route,difficulty)=>route==='petition'?(difficulty==='veteran'?8:6):(difficulty==='veteran'?4:3);
+export const maxSignatureSupport=3;
+export const signatureSupport=(player,unit)=>Math.min(maxSignatureSupport,unitPower(player,unit));
 
 export const objectiveCost=2;
 export const objectiveGoal=3;
@@ -352,7 +359,7 @@ function endTurn(game){
 
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
-const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
+const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
 
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
@@ -440,6 +447,7 @@ function assignChapterGuard(player,id,cost){
   player.mana-=cost;
   guard.ready=false;
   guard.exhausted=true;
+  return guard;
 }
 function workFoundry(game,seat,data){
   const {story}=game;
@@ -713,6 +721,33 @@ function keepTableLamp(game,player){
   }
 }
 
+function signPetition(game,seat,id){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='first-petition'||story?.route!=='petition'||p.bot) throw Error('The public petition is unavailable.');
+  if(story.channelTurn===game.round) throw Error('You can sign the petition once per turn.');
+  const signer=assignChapterGuard(p,id,0);
+  const goal=firstPetitionGoal(story.route,game.difficulty);
+  story.channelTurn=game.round;
+  story.marks=Math.min(goal,story.marks+signatureSupport(p,signer));
+  game.last=p.name+' added a name to the petition.';
+  if(story.marks===goal){
+    story.ending='petition-signed';
+    game.winner=seat;
+  }
+}
+
+function sendPetitionRunner(game,seat){
+  const {story}=game;
+  if(game.winner!==null||game.players[seat].eliminated) return;
+  story.marks++;
+  game.last+=' A runner carried a copy past the Watch.';
+  if(story.marks===firstPetitionGoal(story.route,game.difficulty)){
+    story.ending='copies-through';
+    game.winner=seat;
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
   keepTableLamp(game,p);
@@ -800,12 +835,17 @@ function recordLeaderDamage(game,combat,unit,damage){
   return entry.damage>=leaderDamageGoal;
 }
 function finishCombatDamage(game,combat,leaderLethal,directDamage){
-  const defender=game.players[combat.defender];
+  const attacker=game.players[combat.attacker], defender=game.players[combat.defender];
+  const runnerCanPass=game.episode==='first-petition'&&game.story?.route==='runners'&&
+    (attacker.bot?attacker:defender).board.some(unit=>unit.hp<=0);
+  removeFallen(attacker);
+  removeFallen(defender);
   if(leaderLethal||defender.life<=0){
     eliminate(game,combat.defender,defender.name+(leaderLethal?' fell to leader damage.':' was eliminated.'));
   }
   advanceDawnCopies(game,combat,directDamage);
   holdLanding(game,combat,directDamage);
+  if(runnerCanPass) sendPetitionRunner(game,attacker.bot?combat.defender:combat.attacker);
 }
 function resolveCombat(game){
   const combat=game.combat;
@@ -818,8 +858,6 @@ function resolveCombat(game){
   const damage=strikeDamage(attacker,defender,unit,blocker,combat,bonus);
   if(blocker) blocker.hp=Math.min(blocker.hp,maxHp(defender,blocker));
   else defender.life-=damage;
-  removeFallen(attacker);
-  removeFallen(defender);
   game.combat=null;
   game.last=blocker?cards[blocker.kind].name+' blocked '+cards[unit.kind].name+'.':defender.name+' took '+damage+' combat damage.';
   finishCombatDamage(game,combat,!blocker&&recordLeaderDamage(game,combat,unit,damage),blocker?0:damage);
@@ -861,8 +899,6 @@ function resolveBatch(game){
   }
   defender.life-=total;
   if(hasNode(defender,'court-watch',2)&&combat.strikes.filter(strike=>strike.blocker).length>=2) defender.life=Math.min(20,defender.life+2);
-  removeFallen(attacker);
-  removeFallen(defender);
   game.combat=null;
   game.turnDeadline=Date.now()+combat.turnRemaining;
   game.effect={type:'impact',seat:combat.defender};
@@ -1027,6 +1063,7 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='first-petition') game.story.route=firstPetitionRoute(game.priorOutcome);
       if(game.episode==='common-table'){
         game.story.route=commonTableRoute(game.priorOutcome);
         if(game.story.route==='seats') game.story.delegates=[];
@@ -1134,6 +1171,10 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='sign-petition'){
+    signPetition(game,seat,data.id);
     return;
   }
   if(data.type==='send-supplies'){

@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -550,7 +550,43 @@ function commonTablePanel(){
     </section>`;
 }
 
+function firstPetitionPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['first-petition'];
+  const endings={
+    'petition-signed':['The Clerk Takes the Petition','The clerk reads the signatures and sets the petition beside the old orders. Sera asks her to leave a space for the next name.'],
+    'copies-through':['A Copy in Every Hand','The last runner comes back with empty hands. By the time the Watch reaches the registry, a copy has reached every door on the lane.'],
+    detachment:['The Registry Stays Open','The Watch leaves the registry. Sera weights the petition with a cup and waits for the clerk to return.'],
+    lost:['The Clerk Leaves','The Watch clears the registry. Sera folds the petition and carries it back to the table.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const route=story?.route??firstPetitionRoute(priorOutcome);
+  const goal=firstPetitionGoal(route,difficulty);
+  const marks=story?.marks??0;
+  const label=route==='runners'?'Runners through':'Petition support';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  if(route==='runners') return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} The lamplighters know the lane behind the registry. They have copies tucked under their coats.</p>
+    <p>When a Sentinel creature falls in combat, one runner gets through. A fight can send one runner. Get ${goal} runners through or defeat the Sentinels to win.</p>
+    ${progress}
+    </section>`;
+
+  const mine=game.players[game.seat];
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const canSign=active&&ready.length&&story.channelTurn!==game.round;
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} ${priorOutcome==='delegates-seated'?'The delegates stand beside her. They have come to sign in public.':'Sera leaves the first line open.'}</p>
+    <p>Once per turn, exhaust a ready creature to sign. It adds support equal to its power, up to ${maxSignatureSupport}. Reach ${goal} support or defeat the Sentinels to win.</p>
+    ${progress}
+    ${story?`${active&&ready.length?`<label for="petition-signer">Creature to sign the petition</label>
+      <select id="petition-signer">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${signatureSupport(mine,unit)} support</option>`).join('')}</select>`:''}
+      <button class="outline" data-action="sign-petition" ${canSign?'':'disabled'}>Sign the petition</button>`:''}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='first-petition') return firstPetitionPanel(active);
   if(game.episode==='common-table') return commonTablePanel();
   if(game.episode==='upper-door') return upperDoorPanel(active);
   if(game.episode==='landing-bell') return landingPanel(active);
@@ -714,7 +750,9 @@ function render(){
   const reactionWaiting=pendingNames?.length?`<p class="reaction-waiting">Waiting for <strong>${escape(new Intl.ListFormat('en').format(pendingNames))}</strong>.</p>`:'';
   const landingHint=game.episode==='landing-bell'&&game.story?.route==='hold'&&attacker?.bot?
     `<p>Landing · ${game.story.marks} / ${landingGoal('hold',game.difficulty)} attacks stopped. Assign a blocker and prevent all damage to the defending player.</p>`:'';
-  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${landingHint}${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
+  const petitionHint=game.episode==='first-petition'&&game.story?.route==='runners'?
+    `<p>Runners · ${game.story.marks} / ${firstPetitionGoal('runners',game.difficulty)} through. Defeat a Sentinel creature in this combat to send one runner.</p>`:'';
+  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${landingHint}${petitionHint}${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
   const combatPanel=batchPanel||(combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Reaction window.'}</p>${reactionWaiting}${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'');
   const teamLabel=p=>game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team):'';
   const status=error||outcome||(mine.eliminated?'You’re eliminated.':blocking?'Assign blockers.':reacting?'Play a reaction from your hand or pass.':mine.choice?'Choose a card.':prompt);
@@ -909,6 +947,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='sign-petition') await move({type:action,id:$('petition-signer')?.value});
   if(action==='send-supplies') await move({type:action,id:$('supply-card')?.value});
   if(action==='haul-lift') await move({type:action,steps:Number(button.dataset.steps),id:$('lift-hauler')?.value});
   if(action==='lift-grate'||action==='guide-family') await move({type:action,id:$('stair-guard')?.value});

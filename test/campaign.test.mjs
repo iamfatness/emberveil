@@ -951,3 +951,86 @@ test('the Common Table keeps the combat endings for both routes',()=>{
     assert.equal(view(lost,0,0).chapterOutcome,'lost');
   }
 });
+
+test('the First Petition caps each signature at three support and lets any ready creature sign without mana',()=>{
+  const game=chapter('standard','first-petition','delegates-seated');
+  const ally=game.players[0];
+  const sign=id=>act(game,0,{type:'sign-petition',id});
+  ally.board=[
+    {kind:'drake',id:'drake',hp:4,ready:true},
+    {kind:'guard',id:'guard',hp:3,ready:true},
+    {kind:'sprite',id:'sprite',hp:1,ready:true}
+  ];
+  assert.equal(game.story.route,'petition');
+  ally.mana=0;
+  assert.throws(()=>sign('unknown'),/choose a ready creature/i);
+  sign('drake');
+  assert.equal(game.story.marks,3);
+  assert.equal(ally.mana,0);
+  assert.equal(ally.board[0].exhausted,true);
+  assert.throws(()=>sign('guard'),/once per turn/i);
+  endTurn(game);
+  endTurn(game);
+  sign('guard');
+  assert.equal(game.story.marks,5);
+  assert.equal(game.winner,null);
+  endTurn(game);
+  endTurn(game);
+  sign('sprite');
+  assert.equal(view(game,-1,0).chapterOutcome,'petition-signed');
+});
+
+test('runners pass once per fight when a Sentinel creature falls on offense or defense',()=>{
+  const game=chapter('veteran','first-petition','lamps-kept');
+  const [ally,sentinel]=game.players;
+  const sprint={type:'attack-batch',opponent:1,ids:['first','second']};
+  assert.equal(game.story.route,'runners');
+  assert.throws(()=>act(game,0,{type:'sign-petition',id:'unknown'}),/unavailable/i);
+  endTurn(game);
+  endTurn(game);
+  ally.hand=[{kind:'spark',id:'spark'}];
+  sentinel.board=[{kind:'scout',id:'burned',hp:1}];
+  act(game,0,{type:'play',id:'spark',opponent:1,target:'burned'});
+  assert.equal(game.story.marks,0);
+
+  ally.hand=[];
+  ally.board=[{kind:'scout',id:'first',hp:1,ready:true},{kind:'scout',id:'second',hp:1,ready:true}];
+  sentinel.board=[{kind:'guard',id:'guard',hp:3},{kind:'guard',id:'other',hp:3}];
+  act(game,0,sprint);
+  act(game,1,{type:'blocks',blocks:[{attacker:'first',blocker:'guard'},{attacker:'second',blocker:'other'}]});
+  assert.equal(game.story.marks,0);
+  assert.equal(ally.board.length,0);
+
+  for(let runners=1;runners<=4;runners++){
+    ally.hand=[];
+    ally.board=[{kind:'guard',id:'first',hp:3,ready:true},{kind:'guard',id:'second',hp:3,ready:true}];
+    sentinel.board=[{kind:'scout',id:'one',hp:1},{kind:'scout',id:'two',hp:1}];
+    if(runners===1){
+      endTurn(game);
+      act(game,1,{type:'attack-batch',opponent:0,ids:['one','two']});
+      act(game,0,{type:'blocks',blocks:[{attacker:'one',blocker:'first'},{attacker:'two',blocker:'second'}]});
+    }else{
+      act(game,0,sprint);
+      act(game,1,{type:'blocks',blocks:[{attacker:'first',blocker:'one'},{attacker:'second',blocker:'two'}]});
+    }
+    assert.equal(sentinel.board.length,0);
+    assert.equal(game.story.marks,runners);
+    if(runners<4){
+      assert.equal(game.winner,null);
+      if(runners!==1) endTurn(game);
+      endTurn(game);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'copies-through');
+});
+
+test('both petition routes retain the ordinary battle endings',()=>{
+  for(const outcome of ['delegates-seated','lamps-kept']){
+    const won=chapter('standard','first-petition',outcome);
+    act(won,1,{type:'concede'});
+    assert.equal(view(won,0,0).chapterOutcome,'detachment');
+    const lost=chapter('standard','first-petition',outcome);
+    act(lost,0,{type:'concede'});
+    assert.equal(view(lost,0,0).chapterOutcome,'lost');
+  }
+});
