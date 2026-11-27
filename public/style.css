@@ -317,3 +317,8 @@ body:has(#arena.match-live) #rules { padding: .3rem .65rem; }
 }
 
 .combat .reaction-waiting{color:var(--ink);overflow-wrap:anywhere}
+
+.site-links{display:flex;align-items:center;gap:.45rem}
+.chronicle-link{text-decoration:none}
+body:has(#arena.match-live) .chronicle-link{display:none}
+@media(max-width:400px){.site-links .quiet{padding:.45rem .55rem;white-space:nowrap}}

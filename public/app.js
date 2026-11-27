@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -14,7 +14,10 @@ function saveCoopMemory(){
   if(watching||game.mode!=='coop'||game.winner===null) return;
   const memory=readMemory();
   const mine=game.players[game.seat];
-  if(game.chapterOutcome&&game.episode!=='accord') memory.watch=game.chapterOutcome;
+  if(game.chapterOutcome){
+    memory.outcomes??={};
+    memory.outcomes[game.episode??'watch']=game.chapterOutcome;
+  }
   if(sessionStorage.emberveilRememberRoom===room&&mine.leader&&mine.unlocked){
     memory.leaders??={};
     const saved=memory.leaders[mine.leader];
@@ -146,7 +149,69 @@ function accordPanel(active){
   }
   return `<section class="field story" aria-label="Match story"><h2>${heading}</h2><p>${passage}</p>${controls}</section>`;
 }
+function escortPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const harbor=game.episode==='tide';
+  const finale=game.episode==='open-accord';
+  const narrations=finale?{
+    causeway:'The harbor guard arrives with the order recovered from the customs house.',
+    'tidal-stair':'The order from the tidal stair still bears the names of the old harbor refuges.',
+    detachment:'Harbor workers bring the order under escort after the detachment fell.'
+  }:harbor?{
+    witnesses:'A witness directs the party to the original customs house.',
+    testimony:'The dated record tells Iskar which set of orders to look for.',
+    detachment:'The party follows the court’s only surviving lead to the waterfront.'
+  }:{
+    sun:'The Sun healers lend the party a cart from the infirmary.',
+    moon:'The Moon archivists bring the ledger from the gatehouse.',
+    column:'The broken Sentinel column leaves a clear road as far as the first bend.'
+  };
+  const endings=finale?{
+    direct:['The Bell Rings Open','The party delivers the new order. Both houses keep their seals, and the local refuges gain the right to open their own doors when the city is in danger.'],
+    refuges:['The Refuges Answer','Shelter keepers stand beside the two houses when the party delivers the order. The Watch lifts the old seal. The keepers stay to help write the rules for the next emergency.'],
+    detachment:['The Watch Takes a New Order','After the last Sentinel falls, Orrun carries the signed order to the command bell. The gates open, and the first hearing begins with testimony from the people who lived beneath them.'],
+    lost:['The Bell Falls Silent','The old seal holds. Shelter keepers carry the signed order back through the orchard to await another attempt.']
+  }:harbor?{
+    causeway:['The Causeway Holds','The party crosses under guard and finds the release order in a cedar chest. Iskar watches the returning water reach the last mooring stone.'],
+    'tidal-stair':['The Steps Under the Water','As the tide falls away, the party climbs through an old inspection hatch. The order names the harbor refuges that once had the right to open their own gates.'],
+    detachment:['The Watch Leaves the Harbor','With the last Sentinel down, harbor workers open the customs house. The party carries the original release order back to court.'],
+    lost:['The Harbor Closes','The Watch reaches the customs house first. Iskar waits for the water to turn and another party to come down the road.']
+  }:{
+    witnesses:['The Witness Reaches Court','Vael lowers his shield. The witness says the keeper’s name aloud, and this time the court writes it down.'],
+    testimony:['A Date in the Ledger','The preserved record dates the suspension of the release order. The court sends for the original clause at Stillwater Harbor.'],
+    detachment:['The Road Is Clear','The detachment falls, but the court still needs corroboration. The party follows the road to Stillwater Harbor.'],
+    lost:['The Road Closes','The last escort falls. The witnesses retreat into the orchard and wait for another party.']
+  };
+  const scene=lore[game.episode];
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const mine=game.players[game.seat];
+  const guards=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const guardOptions=active&&guards.length?`<label for="escort-guard">Escort guard</label>
+    <select id="escort-guard">${guards.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${cards[unit.kind].power} / ${unit.hp}</option>`).join('')}</select>`:'';
+  const routes=Object.entries(routesByEpisode[game.episode]).filter(([route])=>!story?.route||story.route===route);
+  const objectives=routes.map(([route,info])=>{
+    const cost=story?.atCourt?orderDeliveryCost:info.cost;
+    const available=active&&guards.length&&mine.mana>=cost&&story.channelTurn!==game.round&&(!info.lowOnly||story.tide==='low');
+    const constraint=finale?(info.heal?`Each advance heals living allies by up to ${info.heal} life.`:`Once committed, each Watch turn deals ${info.damage} damage to every living ally.`):harbor?(info.lowOnly?'Available at low tide. Progress carries over between tides.':'Available at any tide.'):
+      `If the escort stalls, the Watch deals ${info.pressure}.`;
+    const progress=story?.atCourt?`Reached the court via ${info.name.toLowerCase()}. Deliver the order with a ready guard on a later turn. ${constraint}`:
+      `<strong>${info.name}</strong> · ${story?.marks??0} / ${routeGoal(info,difficulty)} steps<br>Costs ${cost} mana per step. ${constraint}`;
+    const label=story?.atCourt?'Deliver the order':story?.route?(harbor?'Advance crossing':'Advance escort'):info.name;
+    return `<p>${progress}</p>
+      ${story?`<button class="outline" data-action="escort" data-route="${route}" ${available?'':'disabled'}>${label} · ${cost} mana</button>`:''}`;
+  }).join('');
+  const tide=harbor&&story?`<p><strong>${story.tide==='low'?'Low tide':'High tide'}</strong> · Water ${story.tide==='low'?'rises':'recedes'} ${story.tideIn===1?'on the next Watch turn':`in ${story.tideIn} Watch turns`}.</p>`:'';
+  const pressure=!harbor&&!finale&&story?.route?story.checkedSteps===undefined?'The next Watch turn establishes the checkpoint.':
+    story.checkedSteps===story.marks?'Advance before the next Watch turn to avoid damage.':'The escort is safe from pressure on the next Watch turn.':'';
+  const recent=story?.lastPressure&&game.round-story.lastPressure<game.players.length?' The Watch struck on its last turn.':'';
+  return `<section class="field story" aria-label="Match story"><h2>${scene.title}</h2>
+    <p>${scene.intro} ${narrations[priorOutcome]??''}</p>
+    <p>${finale?'Reach the court, then deliver the order on a later turn, or defeat the Sentinels.':'Complete one route or defeat the Sentinels.'} The first step commits the party. Your guard cannot attack or block until it readies.</p>
+    ${tide}${pressure?`<p><strong>${pressure}</strong>${recent}</p>`:''}${guardOptions}${objectives}</section>`;
+}
 function storyPanel(active=false){
+  if(Object.hasOwn(routesByEpisode,game.episode)) return escortPanel(active);
   if(game.episode==='accord') return accordPanel(active);
   const story=game.story;
   const watch=watchDifficulties[game.difficulty];
@@ -325,9 +390,16 @@ function render(){
   const table=`${tablePanel(active)}<section class="field" aria-label="Players">${summary}${leaderDamage}
     ${canOffer?`<button class="outline" data-action="proposeTruce" data-opponent="${viewedSeat}">Offer ${escape(other.name)} a truce</button>`:''}
     ${canRead?'<button class="outline" data-action="choose-record">Read a missing name</button>':''}${revealed}</section>`;
+  const episode=game.chapter?(game.episode??'watch'):undefined;
+  const nextEpisode=chapters[episode]?.next;
+  const canContinue=nextEpisode&&(episode==='watch'||!winner?.bot);
+  const chapterActions=episode?`
+    <a class="quiet" href="/chronicle.html#${episode}">Read the Chronicle</a>
+    <button class="outline" data-action="replay-chapter" data-episode="${episode}" ${busy?'disabled':''}>Replay chapter</button>
+    ${canContinue?`<button class="gold" data-action="next-chapter" data-episode="${nextEpisode}" ${busy?'disabled':''}>Continue to ${chapters[nextEpisode].title}</button>`:''}`:'';
   const result=outcome?`<section class="field"><h2>${escape(outcome)}</h2>${storyPanel()}
     <div class="result-actions"><a class="quiet" href="/?watch=1&amp;room=${room}">Share final battlefield</a>
-    ${game.chapter&&game.episode!=='accord'?`<button class="outline" data-action="next-chapter" ${busy?'disabled':''}>Continue to The Broken Accord</button>`:''}</div></section>`:'';
+    ${chapterActions}</div></section>`:'';
   const panels=[
     {id:'combat',label:'Combat',html:combatPanel},
     {id:'choice',label:'Card choice',html:choicePanel},
@@ -399,10 +471,13 @@ async function enterFromForm(event,create){
     if(!create&&!/^[A-F0-9]{8}$/.test(code)) throw Error('Enter the eight-character room code.');
     const memory=readMemory();
     const leader=$(create?'host-leader':'guest-leader').value;
+    const episode=$('host-episode').value;
+    const previous=previousChapter(episode);
+    const priorOutcome=memory.outcomes?.[previous]??(previous==='watch'?memory.watch:undefined);
     const remember=$(create?'host-remember':'guest-remember').checked;
     const state=await api(code,{type:create?'create':'join',mode:$('host-mode').value,botCount:Number($('host-bots').value),
-      chapter:$('host-chapter').checked,episode:$('host-episode').value,difficulty:$('watch-difficulty').value,
-      priorOutcome:memory.watch,resume:remember?memory.leaders?.[leader]:undefined,
+      chapter:$('host-chapter').checked,episode,difficulty:$('watch-difficulty').value,
+      priorOutcome,resume:remember?memory.leaders?.[leader]:undefined,
       ranked:$('host-mode').value==='ffa'&&$('ranked').checked,privateTable:$('private-table').checked,leaderDamage:$('leader-damage').checked,turnSeconds:Number($('host-timer').value),
       name:$(create?'host-name':'guest-name').value,leader});
     if(remember&&state.mode==='coop') sessionStorage.emberveilRememberRoom=state.code;
@@ -455,14 +530,14 @@ arena.onclick=async event=>{
     openPanel='';
     render();
   }
-  if(action==='next-chapter'){
+  if(action==='next-chapter'||action==='replay-chapter'){
     if(busy) return;
     busy=true;
     const mine=game.players[game.seat];
     const remember=sessionStorage.emberveilRememberRoom===room;
     try{
-      const state=await api('CREATE',{type:'create',mode:'coop',chapter:true,episode:'accord',leader:mine.leader,name:mine.name,
-        botCount:game.botCount,difficulty:game.difficulty,turnSeconds:game.turnSeconds,priorOutcome:game.chapterOutcome,
+      const state=await api('CREATE',{type:'create',mode:'coop',chapter:true,episode:button.dataset.episode,leader:mine.leader,name:mine.name,
+        botCount:game.botCount,difficulty:game.difficulty,turnSeconds:game.turnSeconds,priorOutcome:action==='next-chapter'?game.chapterOutcome:game.priorOutcome,
         resume:remember?readMemory().leaders?.[mine.leader]:undefined});
       if(remember) sessionStorage.emberveilRememberRoom=state.code;
       error='';
@@ -473,6 +548,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='escort') await move({type:action,route:button.dataset.route,id:$('escort-guard')?.value});
   if(action==='fortify') await move({type:action,gate:button.dataset.gate});
   if(action==='proposeTruce') await move({type:action,opponent:Number(opponent)});
   if(['acceptTruce','declineTruce','contestObjective'].includes(action)) await move({type:action});

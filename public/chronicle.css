@@ -1,0 +1,132 @@
+.nav-link {
+  display: inline-block;
+  text-decoration: none;
+}
+
+header nav {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+}
+
+.chronicle-skip {
+  position: absolute;
+  z-index: 2;
+  top: .5rem;
+  left: .5rem;
+  transform: translateY(-200%);
+  background: #15110f;
+  color: var(--ink);
+  padding: .75rem;
+}
+
+.chronicle-skip:focus { transform: none; }
+
+.chronicle-wrap {
+  width: min(100% - 2.5rem, 68rem);
+  margin-inline: auto;
+}
+
+.chronicle-hero {
+  padding: clamp(3.25rem, 9vw, 7rem) 0;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(90deg, #110e0cf5, #110e0c80),
+    url('/citadel.webp') 64% 52% / cover, #30201a;
+}
+
+.chronicle-hero h1,
+.chronicle-content h2,
+.chronicle-content h3 {
+  font-family: Cinzel, Georgia, serif;
+  color: #f9deb0;
+}
+
+.chronicle-hero h1 {
+  font-size: clamp(2.5rem, 7vw, 5.6rem);
+  line-height: 1.05;
+  margin: 0;
+}
+
+.chronicle-hero p {
+  max-width: 36rem;
+  line-height: 1.6;
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+}
+
+.chronicle-hero nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem 1.25rem;
+}
+
+.chronicle-hero a,
+.chronicle-content a,
+.chronicle-content summary { color: var(--gold); }
+
+.chronicle-content {
+  display: grid;
+  gap: 2.75rem;
+  padding-block: 2.75rem 4rem;
+}
+
+.chronicle-content h2 { margin: 0 0 1.25rem; }
+.chronicle-content h3 { margin: 0 0 .45rem; }
+.chronicle-content p { margin: 0 0 .75rem; line-height: 1.6; }
+.chronicle-content [id] { scroll-margin-top: 1rem; }
+.chronicle-content :target { outline: 2px solid var(--gold); outline-offset: .35rem; }
+
+.chronicle-timeline {
+  list-style: none;
+  padding-left: 1.25rem;
+  margin: 0 0 0 .4rem;
+  border-left: 1px solid #755738;
+}
+
+.chronicle-timeline li { position: relative; padding: 0 0 1.45rem .25rem; }
+.chronicle-timeline li:last-child { padding-bottom: 0; }
+.chronicle-timeline li::before {
+  content: '';
+  position: absolute;
+  top: .36rem;
+  left: -1.53rem;
+  width: .48rem;
+  aspect-ratio: 1;
+  background: var(--gold);
+  transform: rotate(45deg);
+}
+
+.chronicle-timeline summary { cursor: pointer; padding-block: .45rem; width: fit-content; }
+.chronicle-timeline summary:focus-visible { outline: 2px solid var(--gold); outline-offset: .2rem; }
+.chronicle-timeline details p { border-left: 1px solid #755738; padding-left: .8rem; margin-top: .35rem; }
+
+.chronicle-places,
+.chronicle-leaders {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+}
+
+.chronicle-content article {
+  background: #1c1612;
+  border: 1px solid var(--line);
+  border-radius: .55rem;
+  overflow: hidden;
+}
+
+.chronicle-places article,
+.chronicle-leaders article > div { padding: 1rem; }
+
+.chronicle-content article p:last-child { margin-bottom: 0; }
+
+.chronicle-leaders img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+@media (max-width: 400px) {
+  header nav { gap: .35rem; }
+  header nav .quiet { padding-inline: .55rem; }
+}

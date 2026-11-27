@@ -181,9 +181,37 @@ export const lore={
   },
   coop:{title:'The Watch Beneath the Ash',intro:'On the night of the eclipse, the city hid its people beneath the citadel. The Sentinels sealed the vault while the Dawnward held the refugees in enchanted sleep. A century later, the ward is failing and the watch still refuses to open the doors.'},
   accord:{title:'The Broken Accord',intro:'The doors open a crack. One Sentinel reaches for the bar. Another holds it down. Outside, a column climbs the road toward the infirmary and the archive.'},
+  'missing-names':{title:'The Missing Names',intro:'On the Cinder Road, Vael hears a name he etched into his shield a century ago. The witness recognizes his voice. Before either can speak again, a Sentinel column reaches the bend.'},
+  tide:{title:'The Tide That Waited',intro:'At Stillwater Harbor, Iskar can still name the boats he held the tide for. Now the Watch is approaching the customs house. The original release order lies inside, and the water is beginning to move.'},
+  'open-accord':{title:'The Open Accord',intro:'At the Basalt Court, both houses have signed a new order. The Watch is still enforcing the old seal. The party must get the signed order to the court’s command bell before the gates close again.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
+export const chapters={
+  watch:{title:lore.coop.title,revision:1,next:'accord',outcomes:['ward-restored','ward-restored-loss','lantern','vault-lost']},
+  accord:{title:lore.accord.title,revision:1,next:'missing-names',outcomes:['sun','moon','column','gates-fell']},
+  'missing-names':{title:lore['missing-names'].title,revision:1,next:'tide',outcomes:['witnesses','testimony','detachment']},
+  tide:{title:lore.tide.title,revision:1,next:'open-accord',outcomes:['causeway','tidal-stair','detachment']},
+  'open-accord':{title:lore['open-accord'].title,revision:1}
+};
+export const escortRoutes={
+  witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
+  testimony:{name:'Carry the testimony',cost:3,steps:3,damage:2,pressure:'2 damage to the lowest-life ally'}
+};
+export const harborRoutes={
+  causeway:{name:'Secure the causeway',cost:2,steps:4},
+  'tidal-stair':{name:'Take the tidal stair',cost:3,steps:2,lowOnly:true}
+};
+export const courtRoutes={
+  direct:{name:'Go straight to court',cost:3,steps:2,damage:1},
+  refuges:{name:'Open the refuges',cost:2,steps:3,heal:1}
+};
+export const orderDeliveryCost=2;
+export const routesByEpisode={'missing-names':escortRoutes,tide:harborRoutes,'open-accord':courtRoutes};
+export const routeGoal=(route,difficulty)=>route.steps+(difficulty==='veteran'?1:0);
+
+export const previousChapter=episode=>episode&&Object.keys(chapters).find(id=>chapters[id].next===episode);
+
 export const objectiveCost=2;
 export const objectiveGoal=3;
 export const leaderDamageGoal=12;
@@ -262,7 +290,10 @@ function eliminate(game, seat, message){
   game.last=message;
   if(game.story && game.players[seat].bot) game.story.sentinelsFallen++;
   const remaining=game.players.flatMap((p,i)=>p.eliminated?[]:[i]);
-  if(remaining.length && remaining.every(i=>allies(game,i,remaining[0]))) game.winner=remaining[0];
+  if(remaining.length&&remaining.every(i=>allies(game,i,remaining[0]))){
+    game.winner=remaining[0];
+    if(game.story&&Object.hasOwn(routesByEpisode,game.episode)) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
+  }
 }
 const firstSentinelTurn=game=>game.active===game.players.findIndex(p=>p.bot&&!p.eliminated);
 
@@ -280,6 +311,42 @@ function advanceWatch(game){
     if(!ally.life) eliminate(game,seat,ally.name+' fell to the Watch pulse.');
   }
 }
+function advanceEscortThreat(game){
+  const story=game.story;
+  if(game.episode!=='missing-names'||!story?.route) return;
+  if(!firstSentinelTurn(game)) return;
+
+  const stalled=story.checkedSteps===story.marks;
+  story.checkedSteps=story.marks;
+  if(!stalled) return;
+
+  const living=game.players.flatMap((ally,seat)=>!ally.bot&&!ally.eliminated?[{ally,seat}]:[]);
+  const targets=story.route==='testimony'?living.sort((a,b)=>a.ally.life-b.ally.life||a.seat-b.seat).slice(0,1):living;
+  for(const {ally} of targets) ally.life=Math.max(0,ally.life-escortRoutes[story.route].damage);
+  for(const {ally,seat} of targets){
+    if(!ally.life) eliminate(game,seat,ally.name+' fell on the Cinder Road.');
+  }
+  story.lastPressure=game.round;
+}
+const highTideTurns=game=>game.difficulty==='veteran'?4:3;
+
+function advanceTide(game){
+  if(game.episode!=='tide'||!firstSentinelTurn(game)) return;
+  const story=game.story;
+  if(--story.tideIn>0) return;
+  story.tide=story.tide==='high'?'low':'high';
+  story.tideIn=story.tide==='low'?2:highTideTurns(game);
+}
+
+function advanceCourtThreat(game){
+  if(game.episode!=='open-accord'||game.story?.route!=='direct'||!firstSentinelTurn(game)) return;
+  const targets=game.players.flatMap((ally,seat)=>!ally.bot&&!ally.eliminated?[{ally,seat}]:[]);
+  for(const {ally} of targets) ally.life=Math.max(0,ally.life-courtRoutes.direct.damage);
+  for(const {ally,seat} of targets){
+    if(!ally.life) eliminate(game,seat,ally.name+' fell at the Basalt Court.');
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
   game.attacked=false;
@@ -308,6 +375,9 @@ function beginTurn(game){
   });
   removeFallen(p);
   advanceWatch(game);
+  advanceEscortThreat(game);
+  advanceTide(game);
+  advanceCourtThreat(game);
   if(game.winner!==null) return;
   if(hasNode(p,'shelter',2)&&!p.board.length) p.life=Math.min(20,p.life+2);
   if(hasNode(p,'witness',2)&&livingOpponents(game,game.active).some(other=>other.board.length>p.board.length)) drawCard(p);
@@ -582,7 +652,8 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
-      if(game.episode!=='accord'&&Object.hasOwn(watchDifficulties,game.difficulty)) game.story.pulseIn=watchDifficulties[game.difficulty].interval;
+      if(game.episode==='tide') Object.assign(game.story,{tide:'high',tideIn:highTideTurns(game)});
+      if((!game.episode||game.episode==='watch')&&Object.hasOwn(watchDifficulties,game.difficulty)) game.story.pulseIn=watchDifficulties[game.difficulty].interval;
     }
     beginTurn(game);
     return;
@@ -670,6 +741,48 @@ export function act(game, seat, data){
     }
     return;
   }
+  if(data.type==='escort'){
+    const story=game.story;
+    const route=data.route;
+    const routes=Object.hasOwn(routesByEpisode,game.episode)?routesByEpisode[game.episode]:null;
+    if(!routes||!story||p.bot||!Object.hasOwn(routes,route)) throw Error('That route is unavailable.');
+    if(story.route&&story.route!==route) throw Error('Your party has committed to another route.');
+    if(story.channelTurn===game.round) throw Error('You can advance once per turn.');
+    const approach=routes[route];
+    if(approach.lowOnly&&story.tide!=='low') throw Error('The tidal stair is open only at low tide.');
+    const cost=story.atCourt?orderDeliveryCost:approach.cost;
+    if(p.mana<cost) throw Error('You need more mana.');
+    const guard=p.board.find(unit=>unit.id===data.id&&unit.ready&&!unit.exhausted);
+    if(!guard) throw Error('Choose a ready creature.');
+    p.mana-=cost;
+    guard.ready=false;
+    guard.exhausted=true;
+    story.route=route;
+    story.channelTurn=game.round;
+    if(story.atCourt){
+      story.ending=route;
+      game.winner=seat;
+      game.last=p.name+' delivered the replacement order.';
+      return;
+    }
+    story.marks++;
+    game.last=p.name+' advanced the party.';
+    if(approach.heal){
+      for(const ally of game.players){
+        if(!ally.bot&&!ally.eliminated) ally.life=Math.min(20,ally.life+approach.heal);
+      }
+    }
+    if(story.marks===routeGoal(approach,game.difficulty)){
+      if(game.episode==='open-accord'){
+        story.atCourt=true;
+        game.last='The party reached the court. The order can be delivered on a later turn.';
+      }else{
+        story.ending=route;
+        game.winner=seat;
+      }
+    }
+    return;
+  }
   if(data.type==='fortify'){
     const story=game.story;
     const gate=data.gate;
@@ -701,7 +814,7 @@ export function act(game, seat, data){
   }
   if(data.type==='rekindle'){
     const story=game.story;
-    if(!story||game.episode==='accord'||p.bot||story.marks>=wardMarks||story.channelTurn===game.round) throw Error('The ward cannot be rekindled this turn.');
+    if(!story||(game.episode&&game.episode!=='watch')||p.bot||story.marks>=wardMarks||story.channelTurn===game.round) throw Error('The ward cannot be rekindled this turn.');
     if(p.mana<wardCost) throw Error('Rekindling costs '+wardCost+' mana.');
     p.mana-=wardCost;
     story.channelTurn=game.round;
@@ -898,6 +1011,7 @@ function chapterOutcome(game){
   if(game.winner==null||!game.chapter||!game.story) return undefined;
   const lost=game.players[game.winner].bot;
   if(game.episode==='accord') return lost?'gates-fell':game.story.gateHeld?game.story.gate:'column';
+  if(Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
   return game.story.marks===wardMarks?(lost?'ward-restored-loss':'ward-restored'):(lost?'vault-lost':'lantern');
 }
 
@@ -907,7 +1021,7 @@ export function view(game, seat, revision){
     phase:combat.phase,deadline:combat.deadline,pendingReactions:combat.phase==='react'?[...combat.queue]:undefined,canReact:combat.strikes?combat.queue?.includes(seat):combat.queue?.[0]===seat,boost:combat.boost,shield:combat.shield};
   return {revision,seat,ranked:game.ranked,teamsPolitics:game.teamsPolitics,privateTable:game.privateTable,leaderDamageEnabled:game.leaderDamageEnabled,
     threat:tableThreat(game),objective:game.objective,truce:game.truce,truceOfferedTurn:game.truceOfferedTurn,chapter:game.chapter,
-    episode:game.episode,difficulty:game.difficulty,priorOutcome:game.priorOutcome,chapterOutcome:chapterOutcome(game),
+    episode:game.episode,chapterRevision:game.chapterRevision,difficulty:game.difficulty,priorOutcome:game.priorOutcome,chapterOutcome:chapterOutcome(game),
     record:game.record?.reader===seat?game.record:undefined,story:game.story,mode:game.mode,botCount:game.botCount,turnDeadline:game.turnDeadline,turnSeconds:game.turnSeconds,attacked:game.attacked,readyToStart:readyToStart(game),humanLimit:humanLimit(game),rules:game.rules,combat:visibleCombat,effect:game.effect,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
     players:game.players.map((p,i)=>({name:p.name,team:p.team,bot:p.bot,redrawn:p.redrawn,life:p.life,leaderDamage:game.leaderDamageEnabled?Object.values(p.leaderDamage??{}):undefined,mana:p.mana,max:p.max,leader:p.leader,leaderCost:p.leader?leaderCost(p):undefined,eliminated:!!p.eliminated,board:p.board,
       hand:i===seat?p.hand:undefined,choice:i===seat&&p.choice?{type:p.choice,cards:p.deck.slice(0,p.choice==='oracle'?1:2)}:undefined,handSize:p.hand.length,deckSize:p.deck.length,growth:p.growth||0,tree:p.tree,playedCreatureLastTurn:p.playedCreatureLastTurn,earlyReactionPlayed:p.earlyReactionPlayed,recordRead:i===seat?p.recordRead:undefined,unlocked:p.unlocked||0}))};

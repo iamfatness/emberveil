@@ -120,3 +120,29 @@ test('the Watch remembers a restored ward after defeat and The Broken Accord use
   const next=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'accord',priorOutcome:state.chapterOutcome});
   assert.equal(next.data.priorOutcome,'ward-restored-loss');
 });
+
+test('all five chapters start in order and accept only outcomes from the preceding chapter',async()=>{
+  const call=matchApi();
+  const host=crypto.randomUUID();
+  for(const [episode,priorOutcome] of [
+    ['watch',undefined],
+    ['accord','ward-restored'],
+    ['missing-names','sun'],
+    ['tide','witnesses'],
+    ['open-accord','causeway']
+  ]){
+    const room=await call('create',host,{type:'create',mode:'coop',chapter:true,episode,priorOutcome,botCount:1,leader:'sylva',
+      resume:{tree:'briar',unlocked:1,growth:0}});
+    assert.equal(room.status,200,JSON.stringify(room.data));
+    assert.equal(room.data.episode,episode);
+    assert.equal(room.data.chapterRevision,1);
+    assert.equal(room.data.priorOutcome,priorOutcome);
+    assert.equal(room.data.players[0].unlocked,1);
+    const started=await call(room.data.code,host,{type:'start',revision:room.data.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.pulseIn,episode==='watch'?4:undefined);
+    assert.equal(started.data.story.tide,episode==='tide'?'high':undefined);
+  }
+  const unrelated=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'open-accord',priorOutcome:'sun'});
+  assert.equal(unrelated.data.priorOutcome,undefined);
+});
