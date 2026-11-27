@@ -1242,3 +1242,93 @@ test('both Shared Keys paths retain the ordinary battle endings',()=>{
     assert.equal(view(lost,0,0).chapterOutcome,'lost');
   }
 });
+
+test('wagons spend mana and an escort, then end the active turn before combat',()=>{
+  const game=chapter('standard','open-road','bars-lifted');
+  const [ally,sentinel]=game.players;
+  const wagon={type:'send-wagon',id:'escort'};
+  ally.board=[{kind:'guard',id:'escort',hp:3,ready:true}];
+  ally.hand=[];
+  assert.equal(game.story.route,'wagons');
+  assert.throws(()=>act(game,0,wagon),/more mana/i);
+  endTurn(game);
+  endTurn(game);
+  ally.hand=[];
+  act(game,0,{type:'attack-batch',opponent:1,ids:['escort']});
+  assert.throws(()=>act(game,0,wagon),/before attacking/i);
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+  endTurn(game);
+
+  for(let wagons=1;wagons<=3;wagons++){
+    const mana=ally.mana;
+    assert.throws(()=>act(game,0,{...wagon,id:'unknown'}),/ready creature/i);
+    assert.equal(ally.mana,mana);
+    act(game,0,wagon);
+    assert.equal(ally.mana,mana-2);
+    assert.equal(ally.board[0].exhausted,true);
+    assert.equal(game.story.marks,wagons);
+    if(wagons<3){
+      assert.equal(game.active,1);
+      assert.equal(game.winner,null);
+      assert.throws(()=>act(game,0,wagon),/wait for your turn/i);
+      assert.equal(sentinel.life,18);
+      endTurn(game);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'wagons-through');
+});
+
+test('the rallied lane advances only when two declared allied attackers survive the fight',()=>{
+  const game=chapter('veteran','open-road','lanes-rallied');
+  const [ally,sentinel]=game.players;
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  const guard=(id)=>({kind:'guard',id,hp:3,ready:true});
+  const scout=(id)=>({kind:'scout',id,hp:1,ready:true});
+  assert.equal(game.story.route,'crowd');
+  assert.throws(()=>act(game,0,{type:'send-wagon'}),/unavailable/i);
+  ally.hand=[];
+  ally.board=[guard('one'),guard('two')];
+  act(game,0,{type:'attack-batch',opponent:1,ids:['one']});
+  assert.equal(game.story.marks,0);
+  cycle();
+
+  ally.hand=[];
+  ally.board=[scout('one'),guard('two'),guard('stayed')];
+  sentinel.board=[guard('blocker')];
+  act(game,0,{type:'attack-batch',opponent:1,ids:['one','two']});
+  act(game,1,{type:'blocks',blocks:[{attacker:'one',blocker:'blocker'}]});
+  assert.equal(ally.board.length,2);
+  assert.equal(game.story.marks,0);
+  cycle();
+
+  for(let groups=1;groups<=4;groups++){
+    ally.hand=[];
+    ally.board=[guard('one'),guard('two'),scout('third')];
+    sentinel.board=[scout('a'),scout('b'),scout('c')];
+    const life=sentinel.life;
+    act(game,0,{type:'attack-batch',opponent:1,ids:['one','two','third']});
+    act(game,1,{type:'blocks',blocks:[
+      {attacker:'one',blocker:'a'},{attacker:'two',blocker:'b'},{attacker:'third',blocker:'c'}
+    ]});
+    assert.equal(sentinel.life,life);
+    assert.equal(ally.board.length,2);
+    assert.equal(game.story.marks,groups);
+    if(groups<4){
+      assert.equal(game.winner,null);
+      cycle();
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'crowd-through');
+});
+
+test('both Open Road routes retain the ordinary battle endings',()=>{
+  for(const outcome of ['bars-lifted','lanes-rallied']){
+    const won=chapter('standard','open-road',outcome);
+    act(won,1,{type:'concede'});
+    assert.equal(view(won,0,0).chapterOutcome,'detachment');
+    const lost=chapter('standard','open-road',outcome);
+    act(lost,0,{type:'concede'});
+    assert.equal(view(lost,0,0).chapterOutcome,'lost');
+  }
+});

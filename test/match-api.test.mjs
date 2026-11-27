@@ -332,3 +332,19 @@ test('The Shared Keys chooses its route from the Gate Charter ending',async()=>{
     assert.equal(started.data.story.marks,0);
   }
 });
+
+test('The Open Road chooses its route from the Shared Keys ending',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [
+    ['bars-lifted','wagons'],['lanes-rallied','crowd'],['detachment','wagons'],['copies-posted','wagons'],[undefined,'wagons']
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'open-road',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'open-road');
+    assert.equal(room.priorOutcome,priorOutcome==='copies-posted'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.marks,0);
+  }
+});

@@ -196,6 +196,7 @@ export const lore={
   'first-petition':{title:'The First Petition',intro:'Sera brings a petition to the registry. It asks for a door no house can close alone. A Sentinel stands between her and the clerk.'},
   'gate-charter':{title:'The Gate Charter',intro:'Neri unpins the old order from the gatehouse wall. Sera sets down a charter that asks for a door no house can close alone. The Watch is coming up the road.'},
   'shared-keys':{title:'The Shared Keys',intro:'Orrun puts the two keys down beside the gate. The bars are still in their sockets. Across the road, a voice reads the new order aloud.'},
+  'open-road':{title:'The Open Road',intro:'Tala walks the road beyond the gate. The wagons wait where the stones end. Farther out, the Watch has set a line across the track.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -216,7 +217,8 @@ export const chapters={
   'common-table':{title:lore['common-table'].title,revision:1,next:'first-petition',outcomes:['delegates-seated','lamps-kept','detachment','lost']},
   'first-petition':{title:lore['first-petition'].title,revision:1,next:'gate-charter',outcomes:['petition-signed','copies-through','detachment','lost']},
   'gate-charter':{title:lore['gate-charter'].title,revision:1,next:'shared-keys',outcomes:['charter-ratified','copies-posted','detachment','lost']},
-  'shared-keys':{title:lore['shared-keys'].title,revision:1,outcomes:['bars-lifted','lanes-rallied','detachment','lost']}
+  'shared-keys':{title:lore['shared-keys'].title,revision:1,next:'open-road',outcomes:['bars-lifted','lanes-rallied','detachment','lost']},
+  'open-road':{title:lore['open-road'].title,revision:1,outcomes:['wagons-through','crowd-through','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -303,6 +305,10 @@ export const livingKeyBearers=game=>(game.story?.keyBearers??[]).filter(({seat,i
 });
 export const lanePlayThisTurn=game=>game.story?.lanePlay?.round===game.round?game.story.lanePlay:undefined;
 
+export const openRoadRoute=outcome=>outcome==='lanes-rallied'?'crowd':'wagons';
+export const openRoadGoal=difficulty=>difficulty==='veteran'?4:3;
+export const wagonCost=2;
+
 export const objectiveCost=2;
 export const objectiveGoal=3;
 export const leaderDamageGoal=12;
@@ -378,7 +384,7 @@ function endTurn(game){
 
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
-const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition','gate-charter','shared-keys'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
+const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition','gate-charter','shared-keys','open-road'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
 
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
@@ -867,6 +873,37 @@ function rallySharedLane(game){
   }
 }
 
+function sendWagon(game,seat,id){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='open-road'||story?.route!=='wagons'||p.bot) throw Error('Wagon escorts are unavailable.');
+  if(game.attacked) throw Error('Send the wagon before attacking.');
+  assignChapterGuard(p,id,wagonCost);
+  story.marks++;
+  game.last=p.name+' sent a wagon down the road.';
+  if(story.marks===openRoadGoal(game.difficulty)){
+    story.ending='wagons-through';
+    game.winner=seat;
+    return;
+  }
+  endTurn(game);
+}
+
+function advanceRoadCrowd(game,combat){
+  const {story,players}=game;
+  if(game.episode!=='open-road'||story?.route!=='crowd'||game.winner!==null||!combat.strikes) return;
+  const attacker=players[combat.attacker];
+  if(attacker.bot||!players[combat.defender].bot) return;
+  const survivors=combat.strikes.filter(strike=>attacker.board.some(unit=>unit.id===strike.unit)).length;
+  if(survivors<2) return;
+  story.marks++;
+  game.last+=' A group made it down the road.';
+  if(story.marks===openRoadGoal(game.difficulty)){
+    story.ending='crowd-through';
+    game.winner=combat.attacker;
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
   advanceSharedKeys(game,p);
@@ -968,6 +1005,7 @@ function finishCombatDamage(game,combat,leaderLethal,directDamage){
   }
   advanceDawnCopies(game,combat,directDamage);
   holdLanding(game,combat,directDamage);
+  advanceRoadCrowd(game,combat);
   if(game.episode==='gate-charter'&&game.story?.charterHearing&&attacker.bot&&!defender.bot&&directDamage>0){
     delete game.story.charterHearing;
     game.last+=' The charter hearing broke up.';
@@ -1190,6 +1228,7 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='open-road') game.story.route=openRoadRoute(game.priorOutcome);
       if(game.episode==='shared-keys'){
         game.story.route=sharedKeysRoute(game.priorOutcome);
         if(game.story.route==='keys') game.story.keyBearers=[];
@@ -1303,6 +1342,10 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='send-wagon'){
+    sendWagon(game,seat,data.id);
     return;
   }
   if(data.type==='assign-key'){

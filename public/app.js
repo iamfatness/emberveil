@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn,openRoadRoute,openRoadGoal,wagonCost} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -668,7 +668,43 @@ function sharedKeysPanel(active){
     </section>`;
 }
 
+function openRoadPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['open-road'];
+  const endings={
+    'wagons-through':['The Wheels Reach the Road','The last wagon clears the stones. Tala walks beside it until the driver stops looking back at the gate.'],
+    'crowd-through':['The Lane Reaches the Road','The last group comes out together. They make room for the people behind them, then start down the road while there is still light.'],
+    detachment:['The Track Is Clear','The Watch leaves the track. Tala walks back to the stones and tells the people who waited there that they can come out.'],
+    lost:['The Road Goes Quiet','The Watch takes the track. Tala turns the last wagon around before the wheels reach the stones.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const route=story?.route??openRoadRoute(priorOutcome);
+  const goal=openRoadGoal(difficulty);
+  const marks=story?.marks??0;
+  const label=route==='crowd'?'Groups through':'Wagons through';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  if(route==='crowd') return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} The neighbors from the lane have come up together. They follow the creatures that make it through the Watch line.</p>
+    <p>Attack a Sentinel with at least two creatures. If at least two of those attackers survive the combat, one group gets through. Get ${goal} groups through or defeat the Sentinels to win.</p>
+    ${progress}
+    </section>`;
+
+  const mine=game.players[game.seat];
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const canSend=active&&!game.attacked&&ready.length&&mine.mana>=wagonCost;
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} ${priorOutcome==='bars-lifted'?'The gate is open wide enough for the wagons to leave under guard.':'The drivers wait for a clear track.'}</p>
+    <p>Before attacking, spend ${wagonCost} mana and exhaust a ready creature to escort a wagon. Sending a wagon ends your turn. Send ${goal} wagons or defeat the Sentinels to win.</p>
+    ${progress}
+    ${story?`${active&&!game.attacked&&ready.length?`<label for="wagon-escort">Creature to escort the wagon</label>
+      <select id="wagon-escort">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:''}
+      <button class="outline" data-action="send-wagon" ${canSend?'':'disabled'}>Send a wagon and end turn · ${wagonCost} mana</button>`:''}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='open-road') return openRoadPanel(active);
   if(game.episode==='shared-keys') return sharedKeysPanel(active);
   if(game.episode==='gate-charter') return gateCharterPanel(active);
   if(game.episode==='first-petition') return firstPetitionPanel(active);
@@ -841,7 +877,9 @@ function render(){
     `<p>Runners · ${game.story.marks} / ${firstPetitionGoal('runners',game.difficulty)} through. Defeat a Sentinel creature in this combat to send one runner.</p>`:'';
   const charterHint=game.episode==='gate-charter'&&game.story?.charterHearing&&attacker?.bot?
     '<p>A charter hearing is open. Prevent combat damage to the defending player to keep it open.</p>':'';
-  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${landingHint}${petitionHint}${charterHint}${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
+  const roadHint=game.episode==='open-road'&&game.story?.route==='crowd'&&defender?.bot?
+    `<p>Groups through · ${game.story.marks} / ${openRoadGoal(game.difficulty)}. A group needs two attackers to survive the fight.</p>`:'';
+  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${landingHint}${petitionHint}${charterHint}${roadHint}${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
   const combatPanel=batchPanel||(combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Reaction window.'}</p>${reactionWaiting}${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'');
   const teamLabel=p=>game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team):'';
   const status=error||outcome||(mine.eliminated?'You’re eliminated.':blocking?'Assign blockers.':reacting?'Play a reaction from your hand or pass.':mine.choice?'Choose a card.':prompt);
@@ -1036,6 +1074,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='send-wagon') await move({type:action,id:$('wagon-escort')?.value});
   if(action==='assign-key') await move({type:action,id:$('shared-key-bearer')?.value});
   if(action==='call-hearing') await move({type:action});
   if(action==='post-copy') await move({type:action,id:$('charter-carrier')?.value});
