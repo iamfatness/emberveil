@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -252,7 +252,44 @@ function foundryPanel(active){
     ${heat}${actions}</section>`;
 }
 
+function orchardPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const briefings={
+    workers:'The Foundry workers kept the keys. They sent trellises and tools. The shelter beds start with one growth.',
+    court:'The court kept the keys. Its officer sent a patrol schedule. The first sweep comes one Watch turn later.',
+    detachment:'Orrun left the keys in the Foundry lock. Nobody could release the tools or the patrol schedule.',
+    lost:'The Foundry door held. No tools or warning came up the orchard path.'
+  };
+  const endings={
+    'orchard-held':['Both Beds Take Root','Sylva opens the shelter path. By dawn the terrace baskets are full, and families decide for themselves whether to cross the city gates.'],
+    detachment:['The Paths Go Quiet','The last Sentinel falls. The families stay under the briars while Sylva goes to see what the beds can still bear.'],
+    lost:['The Beds Go Untended','Sylva leads the families deeper among the briars. The Watch takes both paths.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const {growth}=orchardDifficulty(difficulty);
+  const mine=game.players[game.seat];
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const canTend=active&&ready.length&&story.channelTurn!==game.round&&mine.mana>=orchardCost;
+  const tender=active&&ready.length?`<label for="orchard-tender">Creature to tend a bed</label>
+    <select id="orchard-tender">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:'';
+  const sweep=story?.lastSweep;
+  const recent=sweep&&game.round-sweep.turn<game.players.length?
+    `<p>${orchardPlots[sweep.plot]} ${sweep.protected?'held through the last sweep.':sweep.lostGrowth?'lost one growth in the last sweep.':'were empty at the last sweep.'}</p>`:'';
+  return `<section class="field story" aria-label="Match story"><h2>${lore.orchard.title}</h2><p>${lore.orchard.intro} ${briefings[priorOutcome]??''}</p>
+    <p>Grow both beds to ${growth} to win, or defeat the Sentinels. Tending adds one growth and protects that bed from its next sweep. An unprotected bed loses one growth.</p>
+    ${story?`<p><strong>Next sweep: ${orchardPlots[story.patrol]}</strong> · ${story.patrolIn===1?'Next Watch turn':`In ${story.patrolIn} Watch turns`}</p>`:''}${recent}
+    ${tender}${Object.entries(orchardPlots).map(([plot,name])=>{
+      const marks=story?.plots[plot]??(plot==='shelter'&&priorOutcome==='workers'?1:0);
+      const protectedBed=story?.sheltered[plot];
+      return `<div class="ward-progress"><progress value="${marks}" max="${growth}" aria-label="${name} growth"></progress><strong>${name} · ${marks} / ${growth}${protectedBed?' · Protected':''}</strong></div>
+        ${story?`<button class="outline" data-action="tend" data-plot="${plot}" ${canTend&&(marks<growth||!protectedBed)?'':'disabled'}>Tend ${name.toLowerCase()} · ${orchardCost} mana</button>`:''}`;
+    }).join('')}
+    <small>Tend once per turn. The creature you choose cannot attack or block until it readies.</small></section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='orchard') return orchardPanel(active);
   if(game.episode==='foundry') return foundryPanel(active);
   if(Object.hasOwn(routesByEpisode,game.episode)) return escortPanel(active);
   if(game.episode==='accord') return accordPanel(active);
@@ -352,7 +389,7 @@ function renderBattlefield(markup){
   if(arena.contains(focus)){
     if(focus.id) focusSelector='#'+CSS.escape(focus.id);
     else{
-      const keys=['id','zone','action','panel','opponent','branch','gate','choice','job','holder','scroll'].filter(key=>focus.dataset[key]!==undefined);
+      const keys=['id','zone','action','panel','opponent','branch','gate','choice','job','holder','plot','scroll'].filter(key=>focus.dataset[key]!==undefined);
       focusSelector=keys.map(key=>`[data-${key}="${CSS.escape(focus.dataset[key])}"]`).join('');
     }
   }
@@ -443,18 +480,19 @@ function render(){
   const result=outcome?`<section class="field"><h2>${escape(outcome)}</h2>${storyPanel()}
     <div class="result-actions"><a class="quiet" href="/?watch=1&amp;room=${room}">Share final battlefield</a>
     ${chapterActions}</div></section>`:'';
+  const orchardWarning=game.episode==='orchard'&&game.story?.patrolIn===1&&!game.story.sheltered[game.story.patrol];
   const foundryWarning=game.episode==='foundry'&&game.story?.heatIn===1&&!game.story.vented;
   const panels=[
     {id:'combat',label:'Combat',html:combatPanel},
     {id:'choice',label:'Card choice',html:choicePanel},
     {id:'tree',label:`Tree · ${mine.growth}`,html:treePanel(mine,active)},
-    {id:'story',label:foundryWarning?'Story · Blast next':game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
+    {id:'story',label:orchardWarning?'Story · Sweep next':foundryWarning?'Story · Blast next':game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
     {id:'table',label:game.truce?.to===game.seat&&!game.truce.accepted?'Truce offer':'Table',html:table},
     {id:'result',label:'Result',html:result}
   ].filter(panel=>panel.html);
   const panel=panels.find(panel=>panel.id===openPanel);
   const tabs=panels.map(item=>`<button class="panel-toggle" data-action="panel" data-panel="${item.id}" aria-expanded="${panel===item}"
-    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'||item.id==='story'&&foundryWarning?'data-attention':''}>${item.label}</button>`).join('');
+    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'||item.id==='story'&&(foundryWarning||orchardWarning)?'data-attention':''}>${item.label}</button>`).join('');
   const hand=mine.hand.map(unit=>{
     const reaction=cards[unit.kind].reaction;
     const early=active&&!game.attacked&&mine.board.length&&earlyReaction(mine,unit.kind);
@@ -592,6 +630,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='tend') await move({type:action,plot:button.dataset.plot,id:$('orchard-tender')?.value});
   if(action==='foundry') await move({type:action,job:button.dataset.job,holder:button.dataset.holder,id:$('foundry-worker')?.value});
   if(action==='escort') await move({type:action,route:button.dataset.route,id:$('escort-guard')?.value});
   if(action==='fortify') await move({type:action,gate:button.dataset.gate});

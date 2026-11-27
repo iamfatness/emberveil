@@ -160,3 +160,16 @@ test('the Foundry opens after the finale and accepts its outcome without changin
   assert.equal(earlyVent.status,400);
   assert.match(earlyVent.data.error,/when the blast is due/);
 });
+
+test('the Orchard receives the saved Foundry keyholder through the co-op handoff',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,shelter,patrolIn] of [['workers',1,2],['court',0,3],['detachment',0,2],['lantern',0,2]]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'orchard',priorOutcome,botCount:1});
+    assert.equal(room.episode,'orchard');
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.plots.shelter,shelter);
+    assert.equal(started.data.story.patrolIn,patrolIn);
+    assert.equal(started.data.priorOutcome,priorOutcome==='lantern'?undefined:priorOutcome);
+  }
+});

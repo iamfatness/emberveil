@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { act, player, view } from '../src/game.mjs';
 
-function chapter(difficulty, episode) {
+function chapter(difficulty, episode, priorOutcome) {
   const game = {
-    chapter: true, episode, difficulty, mode: 'coop', botCount: 1, rules: 3,
+    chapter: true, episode, priorOutcome, difficulty, mode: 'coop', botCount: 1, rules: 3,
     started: false, active: 0, round: 1, turnSeconds: 90, winner: null,
     players: [{ ...player('Rescuer', 'test'), team: 0 }],
   };
@@ -313,4 +313,57 @@ test('Veteran heats faster and the court can hold the keys after the fourth repa
   }
   act(game,0,{type:'foundry',job:'keys',holder:'court'});
   assert.equal(view(game,0,0).chapterOutcome,'court');
+});
+
+test('the Orchard starts with different help depending on who holds the Foundry keys',()=>{
+  const workers=chapter('standard','orchard','workers');
+  const court=chapter('standard','orchard','court');
+  const neutral=chapter('standard','orchard');
+  assert.equal(workers.story.plots.shelter,1);
+  assert.equal(workers.story.patrolIn,2);
+  assert.equal(court.story.plots.shelter,0);
+  assert.equal(court.story.patrolIn,3);
+  assert.equal(neutral.story.plots.shelter,0);
+  assert.equal(neutral.story.patrolIn,2);
+  assert.equal(view(court,0,0).priorOutcome,'court');
+});
+
+test('tending protects a bed through one sweep and a later sweep can undo a step',()=>{
+  const game=chapter('veteran','orchard','workers');
+  const p=game.players[0];
+  p.board=[{kind:'guard',id:'tender',hp:3}];
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  assert.equal(game.story.patrol,'terraces');
+  cycle();
+  assert.equal(game.story.patrol,'shelter');
+  act(game,0,{type:'tend',plot:'shelter',id:'tender'});
+  assert.equal(p.mana,0);
+  assert.equal(p.board[0].exhausted,true);
+  cycle();
+  assert.equal(game.story.plots.shelter,2);
+  assert.equal(game.story.patrol,'terraces');
+  cycle();cycle();
+  assert.equal(game.story.plots.shelter,1);
+  assert.equal(game.story.lastSweep.plot,'shelter');
+  assert.equal(game.story.lastSweep.protected,false);
+});
+
+test('both Orchard beds must reach their goals and only one can be tended each turn',()=>{
+  const game=chapter('standard','orchard','workers');
+  const p=game.players[0];
+  p.board=[{kind:'guard',id:'tender',hp:3},{kind:'guard',id:'spare',hp:3}];
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  const tend=plot=>act(game,0,{type:'tend',plot,id:'tender'});
+  assert.throws(()=>tend('terraces'),/more mana/);
+  cycle();
+  assert.throws(()=>act(game,0,{type:'tend',plot:'terraces',id:'invalid'}),/ready creature/);
+  tend('terraces');
+  assert.throws(()=>act(game,0,{type:'tend',plot:'shelter',id:'spare'}),/once per turn/);
+  cycle();
+  tend('terraces');
+  assert.equal(game.winner,null);
+  cycle();
+  tend('shelter');
+  assert.equal(view(game,0,0).chapterOutcome,'orchard-held');
+  assert.equal(game.winner,0);
 });

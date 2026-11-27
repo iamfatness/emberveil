@@ -185,6 +185,7 @@ export const lore={
   tide:{title:'The Tide That Waited',intro:'At Stillwater Harbor, Iskar can still name the boats he held the tide for. Now the Watch is approaching the customs house. The original release order lies inside, and the water is beginning to move.'},
   'open-accord':{title:'The Open Accord',intro:'At the Basalt Court, both houses have signed a new order. The Watch is still enforcing the old seal. The party must get the signed order to the court’s command bell before the gates close again.'},
   foundry:{title:'Keys to the Foundry',intro:'Orrun finds the furnace still lit. The workers kept it burning through the long Watch. Now the court has sent an officer for the keys, and a Sentinel stands in the doorway with the old order.'},
+  orchard:{title:'The Thorn Orchard',intro:'Families from the city sleep under the briars. The terrace beds feed them. Sylva finds a Watch mark on both paths and asks the party to keep both beds standing.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -194,7 +195,8 @@ export const chapters={
   'missing-names':{title:lore['missing-names'].title,revision:1,next:'tide',outcomes:['witnesses','testimony','detachment']},
   tide:{title:lore.tide.title,revision:1,next:'open-accord',outcomes:['causeway','tidal-stair','detachment']},
   'open-accord':{title:lore['open-accord'].title,revision:1,next:'foundry',outcomes:['direct','refuges','detachment']},
-  foundry:{title:lore.foundry.title,revision:1}
+  foundry:{title:lore.foundry.title,revision:1,next:'orchard',outcomes:['workers','court','detachment','lost']},
+  orchard:{title:lore.orchard.title,revision:1}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -221,6 +223,10 @@ export const foundryRules={
   veteran:{repairs:4,interval:2,damage:2}
 };
 export const foundryDifficulty=difficulty=>difficulty==='veteran'?foundryRules.veteran:foundryRules.standard;
+
+export const orchardPlots={terraces:'Terrace beds',shelter:'Shelter beds'};
+export const orchardCost=2;
+export const orchardDifficulty=difficulty=>difficulty==='veteran'?{growth:3,interval:1}:{growth:2,interval:2};
 
 export const objectiveCost=2;
 export const objectiveGoal=3;
@@ -302,7 +308,7 @@ function eliminate(game, seat, message){
   const remaining=game.players.flatMap((p,i)=>p.eliminated?[]:[i]);
   if(remaining.length&&remaining.every(i=>allies(game,i,remaining[0]))){
     game.winner=remaining[0];
-    if(game.story&&(game.episode==='foundry'||Object.hasOwn(routesByEpisode,game.episode))) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
+    if(game.story&&(['foundry','orchard'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode))) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
   }
 }
 const firstSentinelTurn=game=>game.active===game.players.findIndex(p=>p.bot&&!p.eliminated);
@@ -374,6 +380,14 @@ function advanceFoundry(game){
   }
 }
 
+function assignChapterGuard(player,id,cost){
+  if(player.mana<cost) throw Error('You need more mana.');
+  const guard=player.board.find(unit=>unit.id===id&&unit.ready&&!unit.exhausted);
+  if(!guard) throw Error('Choose a ready creature.');
+  player.mana-=cost;
+  guard.ready=false;
+  guard.exhausted=true;
+}
 function workFoundry(game,seat,data){
   const {story}=game;
   const p=game.players[seat];
@@ -399,15 +413,41 @@ function workFoundry(game,seat,data){
   if(data.job!=='repair') throw Error('Choose a Foundry action.');
   if(story.channelTurn===game.round) throw Error('You can repair once per turn.');
   if(story.marks>=repairs) throw Error('The repairs are complete.');
-  if(p.mana<foundryRules.repairCost) throw Error('You need more mana.');
-  const guard=p.board.find(unit=>unit.id===data.id&&unit.ready&&!unit.exhausted);
-  if(!guard) throw Error('Choose a ready creature.');
-  p.mana-=foundryRules.repairCost;
-  guard.ready=false;
-  guard.exhausted=true;
+  assignChapterGuard(p,data.id,foundryRules.repairCost);
   story.channelTurn=game.round;
   story.marks++;
   game.last=story.marks===repairs?'The repairs are complete. Choose who will hold the keys.':p.name+' repaired the furnace.';
+}
+
+function advanceOrchard(game){
+  const story=game.story;
+  if(game.episode!=='orchard'||!story||!firstSentinelTurn(game)||--story.patrolIn>0) return;
+  const plot=story.patrol;
+  const protectedBed=story.sheltered[plot];
+  const lostGrowth=!protectedBed&&story.plots[plot]>0;
+  if(lostGrowth) story.plots[plot]--;
+  story.sheltered[plot]=false;
+  story.lastSweep={plot,protected:protectedBed,lostGrowth,turn:game.round};
+  story.patrol=plot==='terraces'?'shelter':'terraces';
+  story.patrolIn=orchardDifficulty(game.difficulty).interval;
+}
+function tendOrchard(game,seat,data){
+  const {story}=game;
+  const p=game.players[seat];
+  const {plot}=data;
+  if(game.episode!=='orchard'||!story||p.bot||!Object.hasOwn(orchardPlots,plot)) throw Error('Choose an orchard bed.');
+  if(story.channelTurn===game.round) throw Error('You can tend one bed once per turn.');
+  const {growth}=orchardDifficulty(game.difficulty);
+  if(story.plots[plot]===growth&&story.sheltered[plot]) throw Error('That bed is already full and protected.');
+  assignChapterGuard(p,data.id,orchardCost);
+  story.channelTurn=game.round;
+  story.plots[plot]=Math.min(growth,story.plots[plot]+1);
+  story.sheltered[plot]=true;
+  game.last=p.name+' tended the '+orchardPlots[plot].toLowerCase()+'.';
+  if(Object.values(story.plots).every(steps=>steps===growth)){
+    story.ending='orchard-held';
+    game.winner=seat;
+  }
 }
 
 function beginTurn(game){
@@ -442,6 +482,7 @@ function beginTurn(game){
   advanceTide(game);
   advanceCourtThreat(game);
   advanceFoundry(game);
+  advanceOrchard(game);
   if(game.winner!==null) return;
   if(hasNode(p,'shelter',2)&&!p.board.length) p.life=Math.min(20,p.life+2);
   if(hasNode(p,'witness',2)&&livingOpponents(game,game.active).some(other=>other.board.length>p.board.length)) drawCard(p);
@@ -716,6 +757,12 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='orchard') Object.assign(game.story,{
+        plots:{terraces:0,shelter:game.priorOutcome==='workers'?1:0},
+        sheltered:{terraces:false,shelter:false},
+        patrol:'terraces',
+        patrolIn:orchardDifficulty(game.difficulty).interval+(game.priorOutcome==='court'?1:0)
+      });
       if(game.episode==='foundry') game.story.heatIn=foundryDifficulty(game.difficulty).interval;
       if(game.episode==='tide') Object.assign(game.story,{tide:'high',tideIn:highTideTurns(game)});
       if((!game.episode||game.episode==='watch')&&Object.hasOwn(watchDifficulties,game.difficulty)) game.story.pulseIn=watchDifficulties[game.difficulty].interval;
@@ -806,6 +853,10 @@ export function act(game, seat, data){
     }
     return;
   }
+  if(data.type==='tend'){
+    tendOrchard(game,seat,data);
+    return;
+  }
   if(data.type==='foundry'){
     workFoundry(game,seat,data);
     return;
@@ -820,12 +871,7 @@ export function act(game, seat, data){
     const approach=routes[route];
     if(approach.lowOnly&&story.tide!=='low') throw Error('The tidal stair is open only at low tide.');
     const cost=story.atCourt?orderDeliveryCost:approach.cost;
-    if(p.mana<cost) throw Error('You need more mana.');
-    const guard=p.board.find(unit=>unit.id===data.id&&unit.ready&&!unit.exhausted);
-    if(!guard) throw Error('Choose a ready creature.');
-    p.mana-=cost;
-    guard.ready=false;
-    guard.exhausted=true;
+    assignChapterGuard(p,data.id,cost);
     story.route=route;
     story.channelTurn=game.round;
     if(story.atCourt){
@@ -1080,7 +1126,7 @@ function chapterOutcome(game){
   if(game.winner==null||!game.chapter||!game.story) return undefined;
   const lost=game.players[game.winner].bot;
   if(game.episode==='accord') return lost?'gates-fell':game.story.gateHeld?game.story.gate:'column';
-  if(game.episode==='foundry'||Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
+  if(['foundry','orchard'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
   return game.story.marks===wardMarks?(lost?'ward-restored-loss':'ward-restored'):(lost?'vault-lost':'lantern');
 }
 
