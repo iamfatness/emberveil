@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -445,7 +445,44 @@ function stairPanel(active){
     </section>`;
 }
 
+function landingPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['landing-bell'];
+  const endings={
+    'landing-held':['The Landing Holds','The boots stop at the bend. Orrun rings the bell again. This time the upper door opens, and the families hear someone call them in.'],
+    'lift-raised':['The Lift Reaches the Light','The lift comes level with the stone. A child sets one foot on the landing. Orrun slips a pin through the wheel so it can wait.'],
+    detachment:['The Bell Is Still There','The last Sentinel falls. Orrun ties the bell rope where the people at the landing can reach it.'],
+    lost:['The Bell Goes Quiet','The Watch takes the landing. Orrun lets go of the rope. The last note carries down the stair.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const route=story?.route??landingRoute(priorOutcome);
+  const goal=landingGoal(route,difficulty);
+  const marks=story?.marks??0;
+  const label=route==='hold'?'Attacks stopped':'Lift steps';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  if(route==='hold') return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} The families from the stair wait by the upper door.</p>
+    <p>Stop ${goal} Sentinel attacks or defeat the Sentinels to win. An attack counts when the defending player assigns a blocker and takes no combat damage.</p>
+    ${progress}</section>`;
+
+  const mine=game.players[game.seat];
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const canHaul=active&&ready.length&&story.channelTurn!==game.round;
+  const work=Object.entries(liftCosts).map(([steps,cost])=>
+    `<button class="outline" data-action="haul-lift" data-steps="${steps}" ${canHaul&&mine.mana>=cost&&marks+Number(steps)<=goal?'':'disabled'}>Haul ${steps} ${steps==='1'?'step':'steps'} · ${cost} mana</button>`).join(' ');
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} ${priorOutcome==='detachment'?'The Watch fell at the grate. Families still wait below.':'Voices carry up from below the grate.'}</p>
+    <p>Haul the lift ${goal} steps or defeat the Sentinels to win. Haul once per turn. The chosen creature exhausts.</p>
+    ${progress}
+    ${story?`${active&&ready.length?`<label for="lift-hauler">Creature to haul the lift</label>
+      <select id="lift-hauler">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:''}
+      ${work}`:''}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='landing-bell') return landingPanel(active);
   if(game.episode==='lower-stair') return stairPanel(active);
   if(game.episode==='doors-at-dawn') return dawnPanel(active);
   if(game.episode==='ash-register') return registerPanel(active);
@@ -601,7 +638,9 @@ function render(){
   }).join('');
   const pendingNames=combat?.pendingReactions?.map(seat=>seat===game.seat?'you':game.players[seat].name);
   const reactionWaiting=pendingNames?.length?`<p class="reaction-waiting">Waiting for <strong>${escape(new Intl.ListFormat('en').format(pendingNames))}</strong>.</p>`:'';
-  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
+  const landingHint=game.episode==='landing-bell'&&game.story?.route==='hold'&&attacker?.bot?
+    `<p>Landing · ${game.story.marks} / ${landingGoal('hold',game.difficulty)} attacks stopped. Assign a blocker and prevent all damage to the defending player.</p>`:'';
+  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${landingHint}${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
   const combatPanel=batchPanel||(combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Reaction window.'}</p>${reactionWaiting}${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'');
   const teamLabel=p=>game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team):'';
   const status=error||outcome||(mine.eliminated?'You’re eliminated.':blocking?'Assign blockers.':reacting?'Play a reaction from your hand or pass.':mine.choice?'Choose a card.':prompt);
@@ -796,6 +835,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='haul-lift') await move({type:action,steps:Number(button.dataset.steps),id:$('lift-hauler')?.value});
   if(action==='lift-grate'||action==='guide-family') await move({type:action,id:$('stair-guard')?.value});
   if(action==='read-names') await move({type:action,id:$('dawn-reader')?.value});
   if(action==='record-page') await move({type:action,page:button.dataset.page,id:$('register-scribe')?.value});

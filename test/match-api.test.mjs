@@ -236,3 +236,19 @@ test('The Lower Stair remembers where The Doors at Dawn ended',async()=>{
     assert.equal(started.data.story.marks,marks);
   }
 });
+
+test('The Landing Bell uses the Lower Stair victory to choose its objective',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [
+    ['families-safe','hold'],['detachment','lift'],['lost','lift'],['names-read','lift']
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'landing-bell',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'landing-bell');
+    assert.equal(room.priorOutcome,priorOutcome==='names-read'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.marks,0);
+  }
+});

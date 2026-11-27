@@ -190,6 +190,7 @@ export const lore={
   'ash-register':{title:'The Ash Register',intro:'Neri lays two books on the hearing table. One is for the orders that shut the gates. One is for the people who slept beneath them. The Watch is coming for the books.'},
   'doors-at-dawn':{title:'The Doors at Dawn',intro:'The Watch comes at dawn. At every door there is a book, or someone waiting to hear one read.'},
   'lower-stair':{title:'The Lower Stair',intro:'From below the grate, someone calls a name Vael etched on his shield. Families wait on the lower stair. A Sentinel rests its hand on the chain.'},
+  'landing-bell':{title:'The Landing Bell',intro:'Orrun pulls the bell rope at the landing. Below him, a lift hangs in the dark. Above him, boots come down the steps.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -204,7 +205,8 @@ export const chapters={
   'third-seal':{title:lore['third-seal'].title,revision:1,next:'ash-register',outcomes:['ledger','witness','detachment','lost']},
   'ash-register':{title:lore['ash-register'].title,revision:1,next:'doors-at-dawn',outcomes:['court-record','shelter-copies','detachment','lost']},
   'doors-at-dawn':{title:lore['doors-at-dawn'].title,revision:1,next:'lower-stair',outcomes:['names-read','copies-read','detachment','lost']},
-  'lower-stair':{title:lore['lower-stair'].title,revision:1,outcomes:['families-safe','detachment','lost']}
+  'lower-stair':{title:lore['lower-stair'].title,revision:1,next:'landing-bell',outcomes:['families-safe','detachment','lost']},
+  'landing-bell':{title:lore['landing-bell'].title,revision:1,outcomes:['landing-held','lift-raised','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -257,6 +259,10 @@ export const dawnGoal=difficulty=>difficulty==='veteran'?4:3;
 export const stairCosts={lift:2,guide:1};
 export const stairGoal=difficulty=>difficulty==='veteran'?4:3;
 export const stairHelp=outcome=>({grateBraced:outcome==='names-read',marks:outcome==='copies-read'?1:0});
+
+export const landingRoute=outcome=>outcome==='families-safe'?'hold':'lift';
+export const landingGoal=(route,difficulty)=>(route==='hold'?3:4)+(difficulty==='veteran'?1:0);
+export const liftCosts={1:2,2:4};
 
 export const objectiveCost=2;
 export const objectiveGoal=3;
@@ -331,7 +337,7 @@ function endTurn(game){
 
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
-const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
+const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
 
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
@@ -603,6 +609,38 @@ function workAtStair(game,seat,data){
   }
 }
 
+function haulLift(game,seat,data){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='landing-bell'||story?.route!=='lift'||p.bot) throw Error('The lift is unavailable.');
+  if(story.channelTurn===game.round) throw Error('You can haul the lift once per turn.');
+  const {steps}=data;
+  if(steps!==1&&steps!==2) throw Error('Choose one or two lift steps.');
+  const goal=landingGoal(story.route,game.difficulty);
+  if(story.marks+steps>goal) throw Error('Only one lift step remains.');
+  assignChapterGuard(p,data.id,liftCosts[steps]);
+  story.channelTurn=game.round;
+  story.marks+=steps;
+  game.last=p.name+' hauled the lift upward.';
+  if(story.marks===goal){
+    story.ending='lift-raised';
+    game.winner=seat;
+  }
+}
+
+function holdLanding(game,combat,directDamage){
+  const {story,players}=game;
+  if(game.episode!=='landing-bell'||story?.route!=='hold'||game.winner!==null||directDamage!==0||
+    !players[combat.attacker].bot||players[combat.defender].bot) return;
+  if(!combat.blocker&&!combat.strikes?.some(strike=>strike.blocker)) return;
+  story.marks++;
+  game.last+=' The families held the landing.';
+  if(story.marks===landingGoal(story.route,game.difficulty)){
+    story.ending='landing-held';
+    game.winner=combat.defender;
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
   game.attacked=false;
@@ -693,6 +731,7 @@ function finishCombatDamage(game,combat,leaderLethal,directDamage){
     eliminate(game,combat.defender,defender.name+(leaderLethal?' fell to leader damage.':' was eliminated.'));
   }
   advanceDawnCopies(game,combat,directDamage);
+  holdLanding(game,combat,directDamage);
 }
 function resolveCombat(game){
   const combat=game.combat;
@@ -914,6 +953,7 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='landing-bell') game.story.route=landingRoute(game.priorOutcome);
       if(game.episode==='lower-stair') Object.assign(game.story,stairHelp(game.priorOutcome),{grateOpen:false});
       if(game.episode==='doors-at-dawn'){
         game.story.route=dawnRoute(game.priorOutcome);
@@ -1015,6 +1055,10 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='haul-lift'){
+    haulLift(game,seat,data);
     return;
   }
   if(data.type==='lift-grate'||data.type==='guide-family'){

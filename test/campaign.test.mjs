@@ -677,3 +677,88 @@ test('the stair battle retains the ordinary combat win and loss endings',()=>{
   act(lost,0,{type:'concede'});
   assert.equal(view(lost,0,0).chapterOutcome,'lost');
 });
+
+test('rescued families need three Sentinel attacks blocked without direct combat damage',()=>{
+  const game=chapter('standard','landing-bell','families-safe');
+  const [ally,sentinel]=game.players;
+  assert.equal(game.story.route,'hold');
+  assert.throws(()=>act(game,0,{type:'haul-lift',steps:1}),/unavailable/);
+  function attack(two=true){
+    ally.board=[{kind:'guard',id:'blocker',hp:3}];
+    sentinel.board=[{kind:'scout',id:'one',hp:1},{kind:'scout',id:'two',hp:1}];
+    endTurn(game);
+    act(game,1,{type:'attack-batch',opponent:0,ids:two?['one','two']:['one']});
+  }
+  const oneBlock=[{attacker:'one',blocker:'blocker'}];
+
+  ally.hand=[];
+  attack();
+  act(game,0,{type:'blocks',blocks:oneBlock});
+  assert.equal(ally.life,18);
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+
+  ally.hand=[{kind:'veil',id:'veil'}];
+  attack(false);
+  act(game,0,{type:'blocks',blocks:[]});
+  act(game,0,{type:'react',id:'veil',strike:'one'});
+  assert.equal(ally.life,18);
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+
+  for(let holds=1;holds<=3;holds++){
+    ally.hand=[{kind:'veil',id:'veil'}];
+    attack();
+    act(game,0,{type:'blocks',blocks:oneBlock});
+    assert.equal(game.story.marks,holds-1);
+    act(game,0,{type:'react',id:'veil',strike:'two'});
+    assert.equal(game.story.marks,holds);
+    if(holds<3){
+      assert.equal(game.winner,null);
+      endTurn(game);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'landing-held');
+});
+
+test('the Veteran lift trades mana for one or two steps and cannot overshoot the landing',()=>{
+  const game=chapter('veteran','landing-bell','detachment');
+  const ally=game.players[0];
+  const haul=steps=>act(game,0,{type:'haul-lift',steps,id:'hauler'});
+  const nextTurn=()=>{endTurn(game);endTurn(game);};
+  assert.equal(game.story.route,'lift');
+  ally.board=[{kind:'guard',id:'hauler',hp:3,ready:true}];
+  assert.throws(()=>haul(1),/more mana/);
+  assert.throws(()=>haul('1'),/choose/i);
+  nextTurn();
+  assert.throws(()=>haul(2),/more mana/);
+  haul(1);
+  assert.equal(game.story.marks,1);
+  assert.equal(ally.mana,0);
+  assert.equal(ally.board[0].exhausted,true);
+  assert.throws(()=>haul(1),/once per turn/);
+  nextTurn();
+  nextTurn();
+  haul(2);
+  assert.equal(game.story.marks,3);
+  nextTurn();
+  haul(1);
+  assert.equal(game.story.marks,4);
+  nextTurn();
+  assert.throws(()=>haul(2),/only one lift step/i);
+  assert.equal(ally.mana,ally.max);
+  assert.equal(game.winner,null);
+  haul(1);
+  assert.equal(view(game,-1,0).chapterOutcome,'lift-raised');
+});
+
+test('both landing objectives keep the combat win and loss endings',()=>{
+  for(const outcome of ['families-safe','detachment']){
+    const won=chapter('standard','landing-bell',outcome);
+    act(won,1,{type:'concede'});
+    assert.equal(view(won,0,0).chapterOutcome,'detachment');
+    const lost=chapter('standard','landing-bell',outcome);
+    act(lost,0,{type:'concede'});
+    assert.equal(view(lost,0,0).chapterOutcome,'lost');
+  }
+});
