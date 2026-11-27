@@ -1,4 +1,4 @@
-import {cards,leaders,MAX_PLAYERS,modes,lore,wardCost,wardMarks} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -18,7 +18,15 @@ for(const id of ['host-leader','guest-leader']){
   $(id).after(detail);
   const describe=()=>{
     const kind=$(id).value;
-    detail.innerHTML=portrait(kind)+'<span>'+leaders[kind].text+'<details><summary>Leader story</summary><p>'+lore.leaders[kind]+'</p></details></span>';
+    const L=leaders[kind];
+    detail.innerHTML=portrait(kind)+`
+      <span>
+        <strong>${cards[kind].name} · ${L.style}</strong><br>
+        ${L.text}<br><br>
+        <strong>Capability</strong><br>${L.capability}<br><br>
+        <strong>Strategy</strong><br>${L.strategy}
+        <details><summary>Leader story</summary><p>${lore.leaders[kind]}</p></details>
+      </span>`;
   };
   $(id).addEventListener('change',describe);
   describe();
@@ -33,7 +41,7 @@ async function api(code,data){
   return state;
 }
 function escape(value){
-  return String(value).replace(/[&<>"']/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[character]);
+  return String(value).replace(/[&<>"']/g,character=>({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'})[character]);
 }
 function portrait(kind){
   return `<img src="/art/${cards[kind].art??kind}.webp" alt="" draggable="false">`;
@@ -53,6 +61,20 @@ function card(unit,zone,enabled,opponent){
   const inHand=zone==='hand'||zone==='reaction';
   const detail=inHand?(info.damage?'Deal 3 damage':info.heal?'Heal 4 life':info.text??info.power+' / '+info.hp):info.power+' / '+unit.hp;
   return `<button class="card" data-kind="${unit.kind}" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id||attackIds.includes(unit.id)}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="card-art">${portrait(unit.kind)}${inHand?`<b class="mana-cost" aria-label="${info.cost} mana">${info.cost}</b>`:''}</span><span class="card-detail">${detail}${!inHand&&(unit.frozen||unit.freezeTurn)?' · Frozen':zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
+}
+function treePanel(mine, active){
+  if(!mine.leader || !trees[mine.leader]) return '';
+  const treeData = trees[mine.leader];
+  const branches = treeData.branches.map(branch => {
+    const nodes = branch.nodes.map((node, i) => {
+      const unlocked = mine.tree === branch.id && mine.unlocked > i;
+      const next = !mine.tree || mine.tree === branch.id ? mine.unlocked === i : false;
+      const canUnlock = active && next && mine.growth >= node.cost && !mine.eliminated;
+      return `<div class="node ${unlocked?'unlocked':''}">${unlocked?'✓ ':''}${node.text} (${node.cost} pt)${canUnlock?`<button class="outline" data-action="unlock" data-branch="${branch.id}">Unlock</button>`:''}</div>`;
+    }).join('');
+    return `<div class="branch"><strong>${branch.name}</strong>${nodes}</div>`;
+  }).join('');
+  return `<section class="field tree-panel"><h2>Ability Tree · ${mine.growth} growth</h2>${branches}<small>Gain 1 growth every 3 turns. Choose a path and unlock nodes on your turn.</small></section>`;
 }
 function storyPanel(active=false){
   const story=game.story;
@@ -121,7 +143,7 @@ function render(){
   const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Waiting for reactions.'} <span id="combat-clock"></span></p><div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
   const combatPanel=batchPanel||(combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Waiting for combat reactions.'} <span id="combat-clock"></span></p>${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'');
   const leaderPanel=mine.leader?`<section class="field leader"><div class="leader-art">${portrait(mine.leader)}</div><div><h2>Leader zone</h2><p>${cards[mine.leader].name} · ${leaders[mine.leader].style} · ${cards[mine.leader].power} / ${cards[mine.leader].hp}</p>${cards[mine.leader].text?`<p>${cards[mine.leader].text}</p>`:''}<button class="outline" data-action="summon" ${active&&mine.mana>=mine.leaderCost&&!mine.board.some(unit=>unit.kind===mine.leader)?'':'disabled'}>Summon leader · ${mine.leaderCost} mana</button></div></section>`:'';
-  const stats=(p,i)=>`<strong class="player-name">${p.leader?portrait(p.leader):''}${escape(p.name)}${i===game.seat?' · You':''}</strong><span>${game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team)+(p.bot?' · Bot':''):''}</span><span>${p.eliminated?'Eliminated':game.winner===null&&game.active===i?'Taking turn':''}</span><span>♥ ${Math.max(0,p.life)} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span>`;
+  const stats=(p,i)=>`<strong class="player-name">${p.leader?portrait(p.leader):''}${escape(p.name)}${i===game.seat?' · You':''}</strong><span>${game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team)+(p.bot?' · Bot':''):''}</span><span>${p.eliminated?'Eliminated':game.winner===null&&game.active===i?'Taking turn':''}</span><span>♥ ${Math.max(0,p.life)} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span><span>✦ ${p.growth||0} growth</span>`;
   const opponents=game.players.map((p,i)=>{
     if(i===game.seat) return '';
     const enabled=active&&(selected||attackIds.length)&&!p.eliminated&&!sameSide(mine,p);
@@ -130,7 +152,7 @@ function render(){
   const leave=outcome||mine.eliminated;
   arena.innerHTML=`<div class="bar"><h1>Battlefield</h1>${game.turnDeadline&&!combat&&!outcome?'<span id="turn-clock"></span>':''}<button class="quiet" data-action="${leave?'leave':'concede'}" ${busy?'disabled':''}>${leave?'Back to lobby':'Concede'}</button></div>
   <p id="status" role="status">${escape(error||outcome||(mine.eliminated?'You’re eliminated. '+prompt:prompt))} ${game.last&&!error?' · '+escape(game.last):''}</p>
-  ${combatPanel}${storyPanel(active)}<div class="opponents">${opponents}</div>
+  ${combatPanel}${storyPanel(active)}${treePanel(mine, active)}<div class="opponents">${opponents}</div>
   <section data-seat="${game.seat}" class="field player-field ${active?'current-turn':''}" aria-label="Your battlefield"><div class="stats">${stats(mine,game.seat)}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div><div class="cards">${mine.board.map(unit=>card(unit,blocking&&!combat.strikes?'block':'mine',blocking&&!combat.strikes?!unit.exhausted:active&&unit.ready&&!game.attacked)).join('')||'<span>No creatures in play</span>'}</div></section>
   ${leaderPanel}<section class="field" aria-label="Your hand"><strong>Your hand</strong><div class="cards">${mine.hand.map(unit=>card(unit,cards[unit.kind].reaction?'reaction':'hand',(cards[unit.kind].reaction?reacting:active)&&cards[unit.kind].cost<=mine.mana)).join('')||'<span>Your hand is empty</span>'}</div></section>`;
 }
@@ -171,7 +193,7 @@ async function move(data){
 arena.onclick=async event=>{
   const button=event.target.closest('button');
   if(!button||button.disabled) return;
-  const {action,zone,id,opponent}=button.dataset;
+  const {action,zone,id,opponent,branch}=button.dataset;
   if(action==='copy'){
     try{await navigator.clipboard.writeText(location.href);$('status').textContent='Invite link copied.';}
     catch{$('status').textContent='Share the URL from your address bar.';}
@@ -179,6 +201,7 @@ arena.onclick=async event=>{
   if(action==='leave') location.href='/';
   if(action==='rekindle') await move({type:'rekindle'});
   if(action==='redraw') await move({type:'redraw'});
+  if(action==='unlock') await move({type:'unlock',branch});
   if(action==='blocks'){
     const blocks=[...arena.querySelectorAll('[data-strike]')].filter(select=>select.value)
       .map(select=>({attacker:select.dataset.strike,blocker:select.value}));
