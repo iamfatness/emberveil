@@ -25,6 +25,10 @@ function saveCoopMemory(){
 $('host-chapter').onchange=()=>{$('chapter-options').hidden=!$('host-chapter').checked;};
 let room='',game,selected,error='',busy=false,refreshing=false;
 let attackIds=[],reactionTarget='';
+let viewedSeat,openPanel='',actionWindow='';
+let blockDraft={};
+let draftCombat;
+
 function tableOptions(){
   const mode=$('host-mode').value;
   const ranked=mode==='ffa'&&$('ranked').checked;
@@ -208,10 +212,55 @@ function renderSpectator(){
       <div class="cards">${p.board.map(unit=>card(unit,'enemy',false,i)).join('')||'<span>No creatures in play</span>'}</div>
     </section>`).join('')}</div>`;
 }
+function viewState(combat,blocking,reacting,mine){
+  if(combat?.id!==draftCombat){
+    blockDraft={};
+    draftCombat=combat?.id;
+  }
+  const others=game.players.flatMap((p,i)=>i===game.seat?[]:[i]);
+  if(!others.includes(viewedSeat)){
+    viewedSeat=others.find(i=>!game.players[i].eliminated&&!sameSide(mine,game.players[i]))??others[0];
+  }
+  const truceOffer=game.truce?.to===game.seat&&!game.truce.accepted;
+  const window=mine.choice?`choice-${mine.choice.type}`:blocking||reacting?`${combat.id??combat.unit}-${combat.phase}`:
+    truceOffer?`truce-${game.round}`:game.winner!==null?'result':'';
+  if(window&&window!==actionWindow){
+    if(mine.choice) openPanel='choice';
+    else if(truceOffer&&!blocking&&!reacting) openPanel='table';
+    else if(game.winner!==null) openPanel='result';
+    else{
+      viewedSeat=combat.attacker===game.seat?combat.defender:combat.attacker;
+      openPanel=blocking&&!combat.strikes?'':'combat';
+    }
+  }
+  actionWindow=window;
+  if(openPanel==='choice'&&!mine.choice||openPanel==='combat'&&!combat) openPanel='';
+  return others;
+}
+function renderBattlefield(markup){
+  const scrollPositions=new Map([...arena.querySelectorAll('[data-scroll]')].map(node=>[node.dataset.scroll,[node.scrollLeft,node.scrollTop]]));
+  const focus=document.activeElement;
+  let focusSelector='';
+  if(arena.contains(focus)){
+    if(focus.id) focusSelector='#'+CSS.escape(focus.id);
+    else{
+      const keys=['id','zone','action','panel','opponent','branch','gate','choice','scroll'].filter(key=>focus.dataset[key]!==undefined);
+      focusSelector=keys.map(key=>`[data-${key}="${CSS.escape(focus.dataset[key])}"]`).join('');
+    }
+  }
+  arena.innerHTML=markup;
+  if(focusSelector) arena.querySelector(focusSelector)?.focus({preventScroll:true});
+  for(const node of arena.querySelectorAll('[data-scroll]')){
+    const offset=scrollPositions.get(node.dataset.scroll);
+    if(offset) [node.scrollLeft,node.scrollTop]=offset;
+  }
+  updateClock();
+}
 function render(){
   if(!game) return;
   lobby.hidden=true;
   arena.hidden=false;
+  arena.classList.toggle('match-live',game.started&&!watching);
   if(watching){renderSpectator();return;}
   saveCoopMemory();
   if(!game.started){
@@ -228,6 +277,7 @@ function render(){
   const reacting=combat?.phase==='react'&&combat.canReact&&!busy;
   const yourTurn=game.active===game.seat&&game.winner===null&&!busy&&!mine.eliminated&&!combat;
   const active=yourTurn&&!mine.choice;
+  const otherSeats=viewState(combat,blocking,reacting,mine);
   const choicePanel=mine.choice?`<section class="field" aria-label="Choose a card"><h2>${mine.choice.type==='oracle'?'Look at your top card':'Keep one card'}</h2>
     ${mine.choice.cards.map((unit,i)=>`<button class="outline" data-action="choose-card" data-choice="${i}" ${yourTurn?'':'disabled'}>${mine.choice.type==='oracle'?'Keep on top · ':''}${cards[unit.kind].name}</button>`).join('')}
     ${mine.choice.type==='oracle'?`<button class="outline" data-action="choose-card" data-choice="1" ${yourTurn?'':'disabled'}>Put on bottom</button>`:''}</section>`:'';
@@ -240,39 +290,99 @@ function render(){
   const batchRows=combat?.strikes?.map((strike,i)=>{
     const name=cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name;
     const blocker=defender.board.find(unit=>unit.id===strike.blocker);
-    const options=blocking?mine.board.filter(unit=>!unit.exhausted).map(unit=>`<option value="${unit.id}">${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join(''):'';
+    const options=blocking?mine.board.filter(unit=>!unit.exhausted).map(unit=>`<option value="${unit.id}" ${blockDraft[strike.unit]===unit.id?'selected':''}>${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join(''):'';
     return `<div class="combat-row"><label for="strike-${i}">${i+1}. ${name} ${strike.boost?' +'+strike.boost+' power':''}${strike.shield?' · '+strike.shield+' shield':''}</label>${blocking?`<select id="strike-${i}" data-strike="${strike.unit}"><option value="">Unblocked</option>${options}</select>`:blocker?`<span>Blocked by ${cards[blocker.kind].name}</span>`:'<span>Unblocked</span>'}</div>`;
   }).join('');
-  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Waiting for reactions.'} <span id="combat-clock"></span></p><div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
-  const combatPanel=batchPanel||(combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Waiting for combat reactions.'} <span id="combat-clock"></span></p>${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'');
-  const leaderPanel=mine.leader?`<section class="field leader"><div class="leader-art">${portrait(mine.leader)}</div><div><h2>Leader zone</h2><p>${cards[mine.leader].name} · ${leaders[mine.leader].style} · ${cards[mine.leader].power} / ${cards[mine.leader].hp}</p>${cards[mine.leader].text?`<p>${cards[mine.leader].text}</p>`:''}<button class="outline" data-action="summon" ${active&&mine.mana>=mine.leaderCost&&!mine.board.some(unit=>unit.kind===mine.leader)?'':'disabled'}>Summon leader · ${mine.leaderCost} mana</button></div></section>`:'';
-  const stats=(p,i)=>`<strong class="player-name">${p.leader?portrait(p.leader):''}${escape(p.name)}${i===game.seat?' · You':''}</strong><span>${game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team)+(p.bot?' · Bot':''):''}</span><span>${game.threat===i?'<strong title="Most creatures, then highest life">Table threat</strong>':''}${p.eliminated?'Eliminated':game.winner===null&&game.active===i?'Taking turn':''}</span><span>♥ ${Math.max(0,p.life)} life</span><span>◆ ${p.mana}/${p.max} mana</span><span>${p.handSize} in hand · ${p.deckSize} in deck</span><span>✦ ${p.growth||0} growth</span>${p.leaderDamage?.map(entry=>`<span>${cards[entry.kind].name} · ${entry.damage}/${leaderDamageGoal} leader damage</span>`).join('')??''}`;
-  const opponents=game.players.map((p,i)=>{
-    if(i===game.seat) return '';
-    const allied=sameSide(mine,p);
-    const truceProtects=game.truce?.accepted&&game.truce.from===game.seat&&game.truce.to===i;
-    const canOffer=game.teamsPolitics&&active&&!game.attacked&&game.truceOfferedTurn!==game.round&&!p.eliminated&&!allied;
-    const enabled=active&&!selected?.own&&(selected||attackIds.length)&&!p.eliminated&&!sameSide(mine,p);
-    const truceOffer=canOffer?`<button class="quiet" data-action="proposeTruce" data-opponent="${i}">Offer truce</button>`:'';
-    return `<section data-seat="${i}" class="field player-field ${game.active===i&&!outcome?'current-turn':''} ${p.eliminated?'eliminated':''}" aria-label="${escape(p.name)}’s battlefield"><div class="stats">${stats(p,i)}<button class="outline enemy-target" data-action="hero" data-opponent="${i}" ${enabled&&(!attackIds.length||!truceProtects)&&(attackIds.length||((game.rules>=2||selected?.type==='play'||!p.board.length)&&!selected?.creatureOnly))?'':'disabled'}>${attackIds.length?'Attack player':'Target player'}</button>${truceOffer}</div><div class="cards">${p.eliminated?'Out of the match':p.board.map(unit=>card(unit,'enemy',enabled&&!selected?.playerOnly&&(game.rules<2||selected?.type==='play'||selected?.type==='summon'),i)).join('')||'<span>No creatures in play</span>'}</div></section>`;
+  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Waiting for reactions.'}</p><div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
+  const combatPanel=batchPanel||(combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Waiting for combat reactions.'}</p>${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'');
+  const teamLabel=p=>game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team):'';
+  const status=error||outcome||(mine.eliminated?'You’re eliminated.':blocking?'Assign blockers.':reacting?'Play a reaction from your hand or pass.':mine.choice?'Choose a card.':prompt);
+  const primaryClock=combat?'<span id="combat-clock" class="match-clock"></span>':game.turnDeadline&&!outcome?'<span id="turn-clock" class="match-clock"></span>':'';
+  const other=game.players[viewedSeat];
+  const otherIsEnemy=other&&!other.eliminated&&!sameSide(mine,other);
+  const truceProtects=game.truce?.accepted&&game.truce.from===game.seat&&game.truce.to===viewedSeat;
+  const targeting=active&&otherIsEnemy&&!selected?.own&&(selected||attackIds.length);
+  const targetPlayer=targeting&&(!attackIds.length||!truceProtects)&&!selected?.creatureOnly&&
+    (attackIds.length||game.rules>=2||selected?.type==='play'||!other.board.length);
+  const targetCreature=targeting&&!selected?.playerOnly&&(game.rules<2||['play','summon'].includes(selected?.type));
+  const leaderReady=active&&mine.leader&&mine.mana>=mine.leaderCost&&!mine.board.some(unit=>unit.kind===mine.leader);
+  const seats=otherSeats.map(i=>{
+    const p=game.players[i];
+    const state=p.eliminated?'Eliminated':game.threat===i?'Threat':teamLabel(p);
+    return `<button class="seat-chip" data-action="view-seat" data-opponent="${i}" aria-pressed="${viewedSeat===i}" ${game.active===i&&!outcome?'data-taking-turn':''}>
+      ${p.leader?portrait(p.leader):''}<span class="seat-copy"><strong>${escape(p.name)}</strong><small>${state||p.board.length+' creatures'}</small></span>
+      <span class="seat-life" aria-label="${Math.max(0,p.life)} life">♥ ${Math.max(0,p.life)}</span></button>`;
   }).join('');
-  const leave=outcome||mine.eliminated;
-  const nextChapter=outcome&&game.chapter&&game.episode!=='accord'?`<button class="outline" data-action="next-chapter" ${busy?'disabled':''}>Continue to The Broken Accord</button>`:'';
-  const readRecord=active&&mine.leader==='neri'&&!mine.recordRead?`<button class="outline" data-action="choose-record">Read a missing name</button>`:'';
-  const revealed=game.record?`<section class="field" aria-label="Remembered hand"><h2>${escape(game.players[game.record.opponent].name)}’s hand</h2><p>${game.record.cards.map(kind=>cards[kind].name).join(', ')}</p></section>`:'';
-  const record=outcome?`<a class="quiet" href="/?watch=1&amp;room=${room}">Share final battlefield</a>`:'';
-  arena.innerHTML=`<div class="bar"><h1>Battlefield</h1>${game.turnDeadline&&!combat&&!outcome?'<span id="turn-clock"></span>':''}<button class="quiet" data-action="${leave?'leave':'concede'}" ${busy?'disabled':''}>${leave?'Back to lobby':'Concede'}</button>${record}${nextChapter}${readRecord}</div>
-  <p id="status" role="status">${escape(error||outcome||(mine.eliminated?'You’re eliminated. '+prompt:prompt))} ${game.last&&!error?' · '+escape(game.last):''}</p>
-  ${revealed}${choicePanel}${combatPanel}${tablePanel(active)}${storyPanel(active)}${treePanel(mine, active)}<div class="opponents">${opponents}</div>
-  <section data-seat="${game.seat}" class="field player-field ${active?'current-turn':''}" aria-label="Your battlefield"><div class="stats">${stats(mine,game.seat)}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div><div class="cards">${mine.board.map(unit=>card(unit,blocking&&!combat.strikes?'block':'mine',blocking&&!combat.strikes?!unit.exhausted:active&&(selected?.own||unit.ready&&!game.attacked))).join('')||'<span>No creatures in play</span>'}</div></section>
-  ${leaderPanel}<section class="field" aria-label="Your hand"><strong>Your hand</strong><div class="cards">${mine.hand.map(unit=>{
+  const leaderButton=mine.leader?`<button class="outline summon-button" data-action="summon" title="${cards[mine.leader].name}" ${leaderReady?'':'disabled'}>Summon leader <b>${mine.leaderCost} ◆</b></button>`:'';
+  const canOffer=game.teamsPolitics&&active&&!game.attacked&&game.truceOfferedTurn!==game.round&&otherIsEnemy;
+  const canRead=active&&mine.leader==='neri'&&!mine.recordRead;
+  const revealed=game.record?`<p>${escape(game.players[game.record.opponent].name)}’s hand · ${game.record.cards.map(kind=>cards[kind].name).join(', ')}</p>`:'';
+  const summary=other?`<p><strong>${escape(other.name)}</strong> ${teamLabel(other)} · ${other.mana}/${other.max} mana · ${other.handSize} in hand · ${other.deckSize} in deck</p>`:'';
+  const leaderDamage=game.players.flatMap(p=>(p.leaderDamage??[]).map(entry=>
+    `<p>${escape(p.name)} took ${entry.damage}/${leaderDamageGoal} damage from ${cards[entry.kind].name}.</p>`)).join('');
+  const table=`${tablePanel(active)}<section class="field" aria-label="Players">${summary}${leaderDamage}
+    ${canOffer?`<button class="outline" data-action="proposeTruce" data-opponent="${viewedSeat}">Offer ${escape(other.name)} a truce</button>`:''}
+    ${canRead?'<button class="outline" data-action="choose-record">Read a missing name</button>':''}${revealed}</section>`;
+  const result=outcome?`<section class="field"><h2>${escape(outcome)}</h2>${storyPanel()}
+    <div class="result-actions"><a class="quiet" href="/?watch=1&amp;room=${room}">Share final battlefield</a>
+    ${game.chapter&&game.episode!=='accord'?`<button class="outline" data-action="next-chapter" ${busy?'disabled':''}>Continue to The Broken Accord</button>`:''}</div></section>`:'';
+  const panels=[
+    {id:'combat',label:'Combat',html:combatPanel},
+    {id:'choice',label:'Card choice',html:choicePanel},
+    {id:'tree',label:`Tree · ${mine.growth}`,html:treePanel(mine,active)},
+    {id:'story',label:game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
+    {id:'table',label:game.truce?.to===game.seat&&!game.truce.accepted?'Truce offer':'Table',html:table},
+    {id:'result',label:'Result',html:result}
+  ].filter(panel=>panel.html);
+  const panel=panels.find(panel=>panel.id===openPanel);
+  const tabs=panels.map(item=>`<button class="panel-toggle" data-action="panel" data-panel="${item.id}" aria-expanded="${panel===item}"
+    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'?'data-attention':''}>${item.label}</button>`).join('');
+  const hand=mine.hand.map(unit=>{
     const reaction=cards[unit.kind].reaction;
     const early=active&&!game.attacked&&mine.board.length&&earlyReaction(mine,unit.kind);
     return card(unit,reaction&&!early?'reaction':'hand',(reaction?reacting||early:active)&&cardCost(mine,unit.kind)<=mine.mana);
-  }).join('')||'<span>Your hand is empty</span>'}</div></section>`;
+  }).join('');
+  renderBattlefield(`<div class="match-shell">
+    <div class="match-header">
+      <div class="match-status"><h1 id="status" role="status">${escape(status)}</h1><p title="${escape(game.last??'')}">${game.last&&!error?escape(game.last):''}</p></div>
+      ${primaryClock}<button class="quiet" data-action="${outcome||mine.eliminated?'leave':'concede'}" ${busy?'disabled':''}>${outcome||mine.eliminated?'Lobby':'Concede'}</button>
+    </div>
+    <nav class="match-seats" aria-label="Choose a battlefield">${seats}</nav>
+    <nav class="match-tools" aria-label="Match panels">${tabs}</nav>
+    <div class="match-center ${panel?'has-drawer':''}">
+      <div class="match-board">
+        ${other?`<section data-seat="${viewedSeat}" class="board-row" aria-label="${escape(other.name)}’s battlefield">
+          <div class="board-heading"><strong>${escape(other.name)}</strong><small>${teamLabel(other)}</small>
+            ${targetPlayer?`<button class="gold target-button" data-action="hero" data-opponent="${viewedSeat}">${attackIds.length?`Attack with ${attackIds.length}`:selected?.type==='read-record'?'Read hand':'Target player'}</button>`:''}
+          </div>
+          <div class="cards" data-scroll="enemy-${viewedSeat}" tabindex="0" aria-label="${escape(other.name)}’s creatures">${other.eliminated?'Out of the match':other.board.map(unit=>card(unit,'enemy',!!targetCreature,viewedSeat)).join('')||'<span>No creatures</span>'}</div>
+        </section>`:''}
+        <section data-seat="${game.seat}" class="board-row your-board" aria-label="Your battlefield">
+          <div class="board-heading"><strong>Your battlefield</strong>${attackIds.length?`<small>${attackIds.length} selected</small>`:''}</div>
+          <div class="cards" data-scroll="mine" tabindex="0" aria-label="Your creatures">${mine.board.map(unit=>card(unit,blocking&&!combat.strikes?'block':'mine',blocking&&!combat.strikes?!unit.exhausted:active&&(selected?.own||unit.ready&&!game.attacked))).join('')||'<span>No creatures</span>'}</div>
+        </section>
+      </div>
+      ${panel?`<aside class="match-drawer" aria-label="${panel.label}">
+        <div class="drawer-heading"><strong>${panel.label}</strong><button class="quiet" data-action="close-panel" aria-label="Close panel">Close</button></div>
+        <div class="drawer-body" data-scroll="panel-${panel.id}" tabindex="0">${panel.html}</div>
+      </aside>`:''}
+    </div>
+    <section class="hand-dock" aria-label="Your hand">
+      <div class="hand-toolbar"><div class="hand-resources"><strong>Your hand</strong><span title="Life">♥ ${Math.max(0,mine.life)}</span><span title="Available mana">◆ ${mine.mana}/${mine.max}</span></div>
+        <div class="hand-actions">${leaderButton}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div>
+      </div>
+      <div class="cards" tabindex="0" data-scroll="hand" aria-label="Cards in your hand">${hand||'<span>Your hand is empty</span>'}</div>
+    </section>
+  </div>`);
 }
 function enter(state){
-  room=state.code||requested;
+  const nextRoom=state.code||requested;
+  if(room!==nextRoom){
+    viewedSeat=undefined;
+    openPanel='';
+    actionWindow='';
+  }
+  room=nextRoom;
   game=state;
   history.replaceState(null,'','/?room='+room+(watching?'&watch=1':''));
   render();
@@ -318,6 +428,20 @@ arena.onclick=async event=>{
   const button=event.target.closest('button');
   if(!button||button.disabled) return;
   const {action,zone,id,opponent,branch}=button.dataset;
+  if(action==='view-seat'){
+    viewedSeat=Number(opponent);
+    if(openPanel&&openPanel!=='choice') openPanel='';
+    render();
+    return;
+  }
+  if(action==='panel'||action==='close-panel'){
+    const requested=button.dataset.panel;
+    const previous=openPanel;
+    openPanel=requested&&previous!==requested?requested:'';
+    render();
+    if(action==='close-panel') arena.querySelector(`[data-panel="${previous}"]`)?.focus();
+    return;
+  }
   if(action==='copy'){
     try{await navigator.clipboard.writeText(location.href);$('status').textContent='Invite link copied.';}
     catch{$('status').textContent='Share the URL from your address bar.';}
@@ -326,6 +450,7 @@ arena.onclick=async event=>{
   if(action==='choose-record'){
     attackIds=[];
     selected={type:'read-record',playerOnly:true};
+    openPanel='';
     render();
   }
   if(action==='next-chapter'){
@@ -375,7 +500,10 @@ arena.onclick=async event=>{
   }
   if(action==='pass') await move({type:'pass',combatId:game.combat?.id});
   if(action==='no-block'||zone==='block') await move({type:'block',id});
-  if(zone==='reaction') await move({type:'react',id,strike:$('reaction-target')?.value,combatId:game.combat?.id});
+  if(zone==='reaction'){
+    const strike=$('reaction-target')?.value||reactionTarget||game.combat?.strikes?.[0]?.unit;
+    await move({type:'react',id,strike,combatId:game.combat?.id});
+  }
   if(action==='end') await move({type:'end'});
   if(action==='concede' && confirm('Concede this match?')) await move({type:'concede'});
   if(action==='hero' && attackIds.length){await move({type:'attack-batch',ids:attackIds,opponent:Number(opponent)});return;}
@@ -404,12 +532,23 @@ arena.onclick=async event=>{
     }
   }
 };
-arena.onchange=event=>{if(event.target.id==='reaction-target') reactionTarget=event.target.value;};
+arena.onkeydown=event=>{
+  if(event.key==='Escape'&&openPanel&&!event.defaultPrevented){
+    const previous=openPanel;
+    openPanel='';
+    render();
+    arena.querySelector(`[data-panel="${previous}"]`)?.focus();
+  }
+};
+arena.onchange=event=>{
+  if(event.target.id==='reaction-target') reactionTarget=event.target.value;
+  if(event.target.dataset.strike) blockDraft[event.target.dataset.strike]=event.target.value;
+};
 function updateClock(){
   const turn=$('turn-clock');
-  if(turn&&game?.turnDeadline) turn.textContent='Turn time · '+Math.max(0,Math.ceil((game.turnDeadline-Date.now())/1000))+'s';
+  if(turn&&game?.turnDeadline) turn.textContent='Turn · '+Math.max(0,Math.ceil((game.turnDeadline-Date.now())/1000))+'s';
   const clock=$('combat-clock');
-  if(clock&&game?.combat) clock.textContent=Math.max(0,Math.ceil((game.combat.deadline-Date.now())/1000))+'s';
+  if(clock&&game?.combat) clock.textContent='Combat · '+Math.max(0,Math.ceil((game.combat.deadline-Date.now())/1000))+'s';
 }
 setInterval(updateClock,250);
 setInterval(async ()=>{
@@ -418,9 +557,11 @@ setInterval(async ()=>{
   try{
     const next=await api(room);
     if(!busy&&next.revision>game.revision){
+      if(next.round!==game.round||next.combat?.id!==game.combat?.id||next.winner!==null){
+        selected=undefined;
+        attackIds=[];
+      }
       game=next;
-      selected=undefined;
-      attackIds=[];
       if(!game.combat) reactionTarget='';
       error='';
       render();
