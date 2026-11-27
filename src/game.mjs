@@ -187,6 +187,7 @@ export const lore={
   foundry:{title:'Keys to the Foundry',intro:'Orrun finds the furnace still lit. The workers kept it burning through the long Watch. Now the court has sent an officer for the keys, and a Sentinel stands in the doorway with the old order.'},
   orchard:{title:'The Thorn Orchard',intro:'Families from the city sleep under the briars. The terrace beds feed them. Sylva finds a Watch mark on both paths and asks the party to keep both beds standing.'},
   'third-seal':{title:'The Third Seal',intro:'A family brings Neri a gate receipt stamped with three seals. The Moon archivist opens the side door. At the closing bell the Watch will seal it again.'},
+  'ash-register':{title:'The Ash Register',intro:'Neri lays two books on the hearing table. One is for the orders that shut the gates. One is for the people who slept beneath them. The Watch is coming for the books.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -198,7 +199,8 @@ export const chapters={
   'open-accord':{title:lore['open-accord'].title,revision:1,next:'foundry',outcomes:['direct','refuges','detachment']},
   foundry:{title:lore.foundry.title,revision:1,next:'orchard',outcomes:['workers','court','detachment','lost']},
   orchard:{title:lore.orchard.title,revision:1,next:'third-seal',outcomes:['orchard-held','detachment','lost']},
-  'third-seal':{title:lore['third-seal'].title,revision:1}
+  'third-seal':{title:lore['third-seal'].title,revision:1,next:'ash-register',outcomes:['ledger','witness','detachment','lost']},
+  'ash-register':{title:lore['ash-register'].title,revision:1,outcomes:['court-record','shelter-copies','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -236,6 +238,12 @@ export const archiveRoutes={
 };
 export const archiveCost=(route,game)=>archiveRoutes[route].cost-(route==='ledger'&&game.foundryKeyholder==='workers'&&!game.story?.marks?1:0);
 export const witnessLead=game=>game.priorOutcome==='orchard-held'?1:0;
+
+export const registerSections={orders:'Gate orders',shelter:'Shelter names'};
+export const registerCost=2;
+export const registerRecovery=2;
+export const registerGoal=difficulty=>difficulty==='veteran'?3:2;
+export const registerStartingPages=outcome=>({orders:outcome==='ledger'?1:0,shelter:outcome==='witness'?1:0});
 
 export const objectiveCost=2;
 export const objectiveGoal=3;
@@ -317,7 +325,7 @@ function eliminate(game, seat, message){
   const remaining=game.players.flatMap((p,i)=>p.eliminated?[]:[i]);
   if(remaining.length&&remaining.every(i=>allies(game,i,remaining[0]))){
     game.winner=remaining[0];
-    if(game.story&&(['foundry','orchard','third-seal'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode))) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
+    if(game.story&&(['foundry','orchard','third-seal','ash-register'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode))) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
   }
 }
 const firstSentinelTurn=game=>game.active===game.players.findIndex(p=>p.bot&&!p.eliminated);
@@ -486,6 +494,32 @@ function presentEvidence(game,seat,data){
     story.ending=route;
     game.winner=seat;
   }
+}
+
+function workOnRegister(game,seat,data){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='ash-register'||!story?.pages||p.bot) throw Error('The register is unavailable.');
+  const goal=registerGoal(game.difficulty);
+  if(data.type==='place-register'){
+    if(Object.values(story.pages).some(pages=>pages<goal)) throw Error('Complete both records before choosing who keeps them.');
+    if(!['court-record','shelter-copies'].includes(data.keeper)) throw Error('Choose who will keep the register.');
+    story.ending=data.keeper;
+    game.winner=seat;
+    game.last=data.keeper==='court-record'?'The clerk filed the register in open court.':'The shelters took copies of the register.';
+    return;
+  }
+  const {page}=data;
+  if(typeof page!=='string'||!Object.hasOwn(registerSections,page)) throw Error('Choose a record.');
+  if(story.pages[page]>=goal) throw Error('That record is already complete.');
+  if(story.channelTurn===game.round) throw Error('You can record one page per turn.');
+  assignChapterGuard(p,data.id,registerCost);
+  story.channelTurn=game.round;
+  story.pages[page]++;
+  if(page==='orders') drawCard(p);
+  else p.life=Math.min(20,p.life+registerRecovery);
+  game.last=Object.values(story.pages).every(pages=>pages===goal)?
+    'Both records are complete. Choose who keeps them.':p.name+' added a page to the register.';
 }
 
 function beginTurn(game){
@@ -796,6 +830,7 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='ash-register') game.story.pages=registerStartingPages(game.priorOutcome);
       if(game.episode==='third-seal') game.story.archiveIn=game.foundryKeyholder==='court'?6:5;
       if(game.episode==='orchard') Object.assign(game.story,{
         plots:{terraces:0,shelter:game.priorOutcome==='workers'?1:0},
@@ -891,6 +926,10 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='record-page'||data.type==='place-register'){
+    workOnRegister(game,seat,data);
     return;
   }
   if(data.type==='present-evidence'){
@@ -1170,7 +1209,7 @@ function chapterOutcome(game){
   if(game.winner==null||!game.chapter||!game.story) return undefined;
   const lost=game.players[game.winner].bot;
   if(game.episode==='accord') return lost?'gates-fell':game.story.gateHeld?game.story.gate:'column';
-  if(['foundry','orchard','third-seal'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
+  if(['foundry','orchard','third-seal','ash-register'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
   return game.story.marks===wardMarks?(lost?'ward-restored-loss':'ward-restored'):(lost?'vault-lost':'lantern');
 }
 

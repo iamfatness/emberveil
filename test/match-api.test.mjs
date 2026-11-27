@@ -187,3 +187,21 @@ test('the Third Seal carries both chapter choices and ignores unrelated Foundry 
     assert.equal(started.data.story.archiveIn,archiveIn);
   }
 });
+
+test('the Ash Register accepts Third Seal endings, including ones saved before this chapter existed',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,pages] of [
+    ['ledger',{orders:1,shelter:0}],
+    ['witness',{orders:0,shelter:1}],
+    ['detachment',{orders:0,shelter:0}],
+    ['workers',{orders:0,shelter:0}]
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'ash-register',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'ash-register');
+    assert.equal(room.priorOutcome,priorOutcome==='workers'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.deepEqual(started.data.story.pages,pages);
+  }
+});

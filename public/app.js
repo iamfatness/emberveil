@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -331,7 +331,49 @@ function archivePanel(active){
     ${bell}${guard}${actions}<small>Advance once per turn. The chosen creature cannot attack or block until it readies.</small></section>`;
 }
 
+function registerPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['ash-register'];
+  const briefings={
+    ledger:'The archivist matched the ledger to the receipt. Start with one page of gate orders.',
+    witness:'The witness named the families who stood under the third seal. Start with one page of shelter names.',
+    detachment:'Neri brings the receipt after the Watch falls back. Both records start empty.',
+    lost:'Neri brings the receipt from the briars. Both records start empty.'
+  };
+  const endings={
+    'court-record':['The Books Stay Open','The clerk lays the books where any house can read them. Neri pushes a stool up to the table. The first person in line has a correction.'],
+    'shelter-copies':['A Copy at Every Door','Before dawn the shelters each have a copy. Their keepers lay them beside the bread boards. By noon the court is asking for a copy of its own.'],
+    detachment:['The Books Are Still Here','The last Sentinel leaves the room. Neri wraps both books in cloth. The question of who keeps them is still open.'],
+    lost:['The Hearing Is Empty','The Watch takes the table. Neri carries out what she can under her coat.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const goal=registerGoal(difficulty);
+  const pages=story?.pages??registerStartingPages(priorOutcome);
+  const complete=Object.values(pages).every(count=>count===goal);
+  const mine=game.players[game.seat];
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const canWrite=active&&ready.length&&story.channelTurn!==game.round&&mine.mana>=registerCost;
+  const scribe=active&&!complete&&ready.length?`<label for="register-scribe">Creature to record a page</label>
+    <select id="register-scribe">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:'';
+  const sections=Object.entries(registerSections).map(([page,name])=>{
+    const count=pages[page];
+    return `<div class="ward-progress"><progress value="${count}" max="${goal}" aria-label="${name} recorded"></progress><strong>${name} · ${count} / ${goal}</strong></div>
+      ${story&&!complete?`<button class="outline" data-action="record-page" data-page="${page}" ${canWrite&&count<goal?'':'disabled'}>Record ${name.toLowerCase()} · ${registerCost} mana</button>`:''}`;
+  }).join('');
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2><p>${intro}</p>
+    ${briefings[priorOutcome]?`<p>${briefings[priorOutcome]}</p>`:''}
+    <p>Complete both records and choose who keeps them, or defeat the Sentinels. Record gate orders to draw a card. Record shelter names to regain up to ${registerRecovery} life.</p>
+    ${scribe}${sections}
+    ${complete?`<p>Both records are complete. Choose who keeps them.</p>
+      <button class="outline" data-action="place-register" data-keeper="court-record" ${active?'':'disabled'}>File the books in open court</button>
+      <button class="outline" data-action="place-register" data-keeper="shelter-copies" ${active?'':'disabled'}>Give copies to the shelters</button>`:
+      '<small>Record one page per turn. The chosen creature cannot attack or block until it readies.</small>'}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='ash-register') return registerPanel(active);
   if(game.episode==='third-seal') return archivePanel(active);
   if(game.episode==='orchard') return orchardPanel(active);
   if(game.episode==='foundry') return foundryPanel(active);
@@ -677,6 +719,8 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='record-page') await move({type:action,page:button.dataset.page,id:$('register-scribe')?.value});
+  if(action==='place-register') await move({type:action,keeper:button.dataset.keeper});
   if(action==='present-evidence') await move({type:action,route:button.dataset.route,id:$('archive-guard')?.value});
   if(action==='tend') await move({type:action,plot:button.dataset.plot,id:$('orchard-tender')?.value});
   if(action==='foundry') await move({type:action,job:button.dataset.job,holder:button.dataset.holder,id:$('foundry-worker')?.value});

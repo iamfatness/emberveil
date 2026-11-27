@@ -421,3 +421,78 @@ test('the ledger route can win before the bell and keeps the written evidence as
   assert.equal(game.winner,0);
   assert.equal(view(game,0,0).chapterOutcome,'ledger');
 });
+
+test('the Ash Register starts with the page supported by the Third Seal evidence',()=>{
+  for(const [priorOutcome,pages] of [
+    ['ledger',{orders:1,shelter:0}],
+    ['witness',{orders:0,shelter:1}],
+    ['detachment',{orders:0,shelter:0}],
+    [undefined,{orders:0,shelter:0}]
+  ]){
+    const game=chapter('standard','ash-register',priorOutcome);
+    assert.deepEqual(view(game,0,0).story.pages,pages);
+    assert.equal(game.players[0].life,20);
+    assert.equal(game.players[0].hand.length,5);
+  }
+});
+
+test('recording orders draws a card and recording shelter names restores life',()=>{
+  const game=chapter('standard','ash-register','ledger');
+  const ally=game.players[0];
+  ally.board=[{kind:'guard',id:'scribe',hp:3}];
+  endTurn(game);
+  endTurn(game);
+  ally.life=17;
+  const hand=ally.hand.length;
+  const orders={type:'record-page',page:'orders',id:'scribe'};
+  const shelter={type:'record-page',page:'shelter',id:'scribe'};
+  const custody={type:'place-register',keeper:'court-record'};
+  assert.throws(()=>act(game,0,custody),/complete both records/i);
+  assert.throws(()=>act(game,0,{...orders,id:'missing'}),/ready creature/i);
+  assert.equal(ally.mana,2);
+  act(game,0,orders);
+  assert.equal(ally.mana,0);
+  assert.equal(ally.board[0].exhausted,true);
+  assert.equal(ally.hand.length,hand+1);
+  assert.equal(ally.life,17);
+  assert.throws(()=>act(game,0,shelter),/one page per turn/i);
+  endTurn(game);
+  endTurn(game);
+  assert.throws(()=>act(game,0,orders),/already complete/i);
+  act(game,0,shelter);
+  assert.equal(ally.life,19);
+  endTurn(game);
+  endTurn(game);
+  act(game,0,shelter);
+  assert.equal(ally.life,20);
+  assert.equal(game.winner,null);
+  assert.throws(()=>act(game,0,{...custody,keeper:'sentinels'}),/choose/i);
+  act(game,0,custody);
+  assert.equal(game.winner,0);
+  assert.equal(view(game,0,0).chapterOutcome,'court-record');
+});
+
+test('Veteran needs three pages in each record and can leave copies with the shelters',()=>{
+  const game=chapter('veteran','ash-register','witness');
+  const ally=game.players[0];
+  ally.board=[{kind:'guard',id:'scribe',hp:3}];
+  const custody={type:'place-register',keeper:'shelter-copies'};
+  for(const page of ['orders','shelter','orders','shelter','orders']){
+    endTurn(game);
+    endTurn(game);
+    act(game,0,{type:'record-page',page,id:'scribe'});
+    if(game.story.pages.orders<3) assert.throws(()=>act(game,0,custody),/complete both records/i);
+  }
+  assert.equal(game.winner,null);
+  act(game,0,custody);
+  assert.equal(view(game,0,0).chapterOutcome,'shelter-copies');
+});
+
+test('winning by combat leaves an unfinished register and conceding loses it',()=>{
+  const won=chapter('standard','ash-register','witness');
+  act(won,1,{type:'concede'});
+  assert.equal(view(won,0,0).chapterOutcome,'detachment');
+  const lost=chapter('standard','ash-register','ledger');
+  act(lost,0,{type:'concede'});
+  assert.equal(view(lost,0,0).chapterOutcome,'lost');
+});
