@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -626,7 +626,50 @@ function gateCharterPanel(active){
     </section>`;
 }
 
+function sharedKeysPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['shared-keys'];
+  const endings={
+    'bars-lifted':['The Bars Lift','Both keys turn. Orrun catches the first bar before it hits the stones. The gate swings out toward the road, where people have been waiting since dawn.'],
+    'lanes-rallied':['The Lane Walks Together','The people from the lane come up to the gate together. One carries a copy. The others can finish the line when she stops to breathe.'],
+    detachment:['The Keys Stay on the Table','The last Sentinel backs away. Orrun lays the keys back on the table and pulls up a chair for the first person on the road.'],
+    lost:['The Bars Stay In','The Watch puts the bars back in their sockets. Someone on the lane reads the new order again, slowly enough for the far end of the road to hear.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const route=story?.route??sharedKeysRoute(priorOutcome);
+  const goal=sharedKeysGoal(route,difficulty);
+  const marks=story?.marks??0;
+  const label=route==='keys'?'Bars lifted':'Groups rallied';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  if(route==='lanes'){
+    const played=active?lanePlayThisTurn(game):undefined;
+    const turnProgress=played?.creature&&played.spell?'End your turn to rally a group.':played?.creature?'Play a spell from hand to rally a group.':played?.spell?'Play a creature card from hand to rally a group.':'';
+    return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+      <p>${intro} The lane knows the charter by heart. The people are waiting to walk to the gate together.</p>
+      <p>Play a creature card and a spell from your hand on the same turn, then end your turn to rally a group. Reactions on your turn count as spells. Rally ${goal} groups or defeat the Sentinels to win.</p>
+      ${progress}${turnProgress?`<p>${turnProgress}</p>`:''}
+      </section>`;
+  }
+
+  const mine=game.players[game.seat];
+  const bearers=livingKeyBearers(game);
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted&&!bearers.some(bearer=>bearer.seat===game.seat&&bearer.id===unit.id));
+  const canAssign=active&&bearers.length<2&&ready.length&&mine.mana>=sharedKeyCost;
+  const names=bearers.map(({seat,id})=>`${cards[game.players[seat].board.find(unit=>unit.id===id).kind].name} (${escape(game.players[seat].name)})`);
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} ${priorOutcome==='charter-ratified'?'The clerk points to the charter. Both keys have to turn together.':'Orrun sets both keys where the people at the gate can see them.'}</p>
+    <p>Pay ${sharedKeyCost} mana per key to assign it to a ready creature. Keep both bearers alive through the Watch to lift one bar and free both keys. Lift ${goal} bars or defeat the Sentinels to win.</p>
+    ${progress}
+    <p><strong>Keys assigned · ${bearers.length} / 2</strong>${names.length?` · ${names.join(', ')}`:''}</p>
+    ${story?`${active&&bearers.length<2&&ready.length?`<label for="shared-key-bearer">Creature to carry a key</label>
+      <select id="shared-key-bearer">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:''}
+      <button class="outline" data-action="assign-key" ${canAssign?'':'disabled'}>Assign a key · ${sharedKeyCost} mana</button>`:''}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='shared-keys') return sharedKeysPanel(active);
   if(game.episode==='gate-charter') return gateCharterPanel(active);
   if(game.episode==='first-petition') return firstPetitionPanel(active);
   if(game.episode==='common-table') return commonTablePanel();
@@ -777,7 +820,9 @@ function render(){
   const outcome=game.winner===null?'':sameSide(mine,winner)?'Your team won!':game.mode&&game.mode!=='ffa'?teamName(game.mode,winner.team)+' won.':game.winner===game.seat?'You won!':winner.name+' won.';
   const canAdmit=active&&game.episode==='upper-door'&&game.story?.route==='door'&&countDoorGuards(mine)>=upperDoorGuards;
   const canKeepLamp=active&&game.episode==='common-table'&&game.story?.route==='lamps'&&mine.mana>=lampReserve&&mine.board.length;
-  const turnPrompt=canAdmit?'End turn to admit a group.':canKeepLamp?`Keep ${lampReserve} mana through the Watch to tend a lamp.`:game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
+  const lanePlay=active&&game.episode==='shared-keys'&&game.story?.route==='lanes'?lanePlayThisTurn(game):undefined;
+  const canRallyLane=lanePlay?.creature&&lanePlay.spell;
+  const turnPrompt=canRallyLane?'End turn to rally a group.':canAdmit?'End turn to admit a group.':canKeepLamp?`Keep ${lampReserve} mana through the Watch to tend a lamp.`:game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
   const prompt=selected?.type==='read-record'?'Choose an opponent whose hand Neri will read.':attackIds.length?`Choose an opponent for ${attackIds.length} attacker${attackIds.length===1?'':'s'}.`:selected?.own?'Choose one of your creatures.':selected?.playerOnly?'Choose an opposing player.':selected?.creatureOnly?'Choose an opposing creature.':selected?'Choose an opposing target.':turnPrompt;
   const attacker=combat&&game.players[combat.attacker];
   const defender=combat&&game.players[combat.defender];
@@ -991,6 +1036,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='assign-key') await move({type:action,id:$('shared-key-bearer')?.value});
   if(action==='call-hearing') await move({type:action});
   if(action==='post-copy') await move({type:action,id:$('charter-carrier')?.value});
   if(action==='sign-petition') await move({type:action,id:$('petition-signer')?.value});

@@ -195,6 +195,7 @@ export const lore={
   'common-table':{title:'The Common Table',intro:'Sera pulls a long table into the upper hall. Someone sets down a kettle. Beyond the door, the Watch is changing shifts.'},
   'first-petition':{title:'The First Petition',intro:'Sera brings a petition to the registry. It asks for a door no house can close alone. A Sentinel stands between her and the clerk.'},
   'gate-charter':{title:'The Gate Charter',intro:'Neri unpins the old order from the gatehouse wall. Sera sets down a charter that asks for a door no house can close alone. The Watch is coming up the road.'},
+  'shared-keys':{title:'The Shared Keys',intro:'Orrun puts the two keys down beside the gate. The bars are still in their sockets. Across the road, a voice reads the new order aloud.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -214,7 +215,8 @@ export const chapters={
   'upper-door':{title:lore['upper-door'].title,revision:1,next:'common-table',outcomes:['door-opened','stair-stocked','detachment','lost']},
   'common-table':{title:lore['common-table'].title,revision:1,next:'first-petition',outcomes:['delegates-seated','lamps-kept','detachment','lost']},
   'first-petition':{title:lore['first-petition'].title,revision:1,next:'gate-charter',outcomes:['petition-signed','copies-through','detachment','lost']},
-  'gate-charter':{title:lore['gate-charter'].title,revision:1,outcomes:['charter-ratified','copies-posted','detachment','lost']}
+  'gate-charter':{title:lore['gate-charter'].title,revision:1,next:'shared-keys',outcomes:['charter-ratified','copies-posted','detachment','lost']},
+  'shared-keys':{title:lore['shared-keys'].title,revision:1,outcomes:['bars-lifted','lanes-rallied','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -292,6 +294,15 @@ export const gateCharterGoal=(route,difficulty)=>(route==='hearing'?2:3)+(diffic
 export const charterHearingCost=2;
 export const canCarryCharterCopy=(player,unit)=>unit.ready&&!unit.exhausted&&unit.kind!==player.leader&&unit.kind!=='sprite';
 
+export const sharedKeysRoute=outcome=>outcome==='copies-posted'?'lanes':'keys';
+export const sharedKeysGoal=(route,difficulty)=>(route==='keys'?2:3)+(difficulty==='veteran'?1:0);
+export const sharedKeyCost=1;
+export const livingKeyBearers=game=>(game.story?.keyBearers??[]).filter(({seat,id})=>{
+  const player=game.players[seat];
+  return !player.eliminated&&player.board.some(unit=>unit.id===id);
+});
+export const lanePlayThisTurn=game=>game.story?.lanePlay?.round===game.round?game.story.lanePlay:undefined;
+
 export const objectiveCost=2;
 export const objectiveGoal=3;
 export const leaderDamageGoal=12;
@@ -361,12 +372,13 @@ function endTurn(game){
   delete game.record;
   cleanDamage(game);
   admitFamilies(game);
+  rallySharedLane(game);
   if(game.winner===null) advance(game);
 }
 
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
-const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition','gate-charter'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
+const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition','gate-charter','shared-keys'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
 
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
@@ -801,8 +813,63 @@ function postCharterCopy(game,seat,id){
   }
 }
 
+function assignSharedKey(game,seat,id){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='shared-keys'||story?.route!=='keys'||p.bot) throw Error('The shared keys are unavailable.');
+  const bearers=livingKeyBearers(game);
+  if(bearers.some(bearer=>bearer.seat===seat&&bearer.id===id)) throw Error('That creature already holds a key.');
+  if(bearers.length===2) throw Error('Both keys already have bearers.');
+  if(p.mana<sharedKeyCost) throw Error('You need more mana.');
+  if(!p.board.some(unit=>unit.id===id&&unit.ready&&!unit.exhausted)) throw Error('Choose a ready creature.');
+  p.mana-=sharedKeyCost;
+  story.keyBearers=[...bearers,{seat,id}];
+  game.last=p.name+' gave a creature a key.';
+}
+
+function advanceSharedKeys(game,player){
+  const {story}=game;
+  if(game.episode!=='shared-keys'||story?.route!=='keys') return;
+  story.keyBearers=livingKeyBearers(game);
+  if(player.bot){
+    if(story.keyBearers.length===2) story.keysUnderWatch=true;
+    return;
+  }
+  if(!story.keysUnderWatch) return;
+  delete story.keysUnderWatch;
+  if(story.keyBearers.length!==2) return;
+  story.keyBearers=[];
+  story.marks++;
+  game.last='Both key bearers lifted a bar.';
+  if(story.marks===sharedKeysGoal(story.route,game.difficulty)){
+    story.ending='bars-lifted';
+    game.winner=game.active;
+  }
+}
+
+function recordLanePlay(game,seat,creature){
+  const {story}=game;
+  if(game.episode!=='shared-keys'||story?.route!=='lanes'||seat!==game.active||game.players[seat].bot) return;
+  story.lanePlay=lanePlayThisTurn(game)??{round:game.round};
+  story.lanePlay[creature?'creature':'spell']=true;
+}
+
+function rallySharedLane(game){
+  const {story,active}=game;
+  if(game.episode!=='shared-keys'||story?.route!=='lanes'||game.winner!==null||game.players[active].eliminated) return;
+  const played=lanePlayThisTurn(game);
+  if(!played?.creature||!played.spell) return;
+  story.marks++;
+  game.last=game.players[active].name+' rallied a group on the lane.';
+  if(story.marks===sharedKeysGoal(story.route,game.difficulty)){
+    story.ending='lanes-rallied';
+    game.winner=active;
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
+  advanceSharedKeys(game,p);
   advanceCharterHearing(game,p);
   keepTableLamp(game,p);
   if(game.winner!==null) return;
@@ -857,7 +924,9 @@ function advance(game){
 }
 const combatTimeout=30_000;
 const reactionEligible=p=>!p.eliminated&&p.hand.some(unit=>cards[unit.kind].reaction&&cardCost(p,unit.kind)<=p.mana);
-function applyReaction(p,kind,strike){
+function applyReaction(game,seat,kind,strike){
+  const p=game.players[seat];
+  recordLanePlay(game,seat,false);
   if(kind==='veil'){
     strike.shield+=shieldAmount(p);
     if(hasNode(p,'oracle',2)) drawCard(p);
@@ -998,7 +1067,7 @@ function batchResponse(game,seat,data){
     if(!strike||!card?.reaction||cost>p.mana) throw Error('Choose an attacker and an affordable reaction.');
     p.hand.splice(index,1);
     p.mana-=cost;
-    applyReaction(p,kind,strike);
+    applyReaction(game,seat,kind,strike);
     game.last=p.name+' cast '+card.name+'.';
     game.effect={type:card.reaction,seat:combat.defender,unit:strike.blocker};
   }
@@ -1069,7 +1138,7 @@ function respondToCombat(game,seat,data){
     if(!card?.reaction || cost>p.mana) throw Error('That reaction is unavailable.');
     p.hand.splice(index,1);
     p.mana-=cost;
-    applyReaction(p,kind,combat);
+    applyReaction(game,seat,kind,combat);
     game.last=p.name+' cast '+card.name+'.';
     game.effect={type:card.reaction,seat:combat.defender,unit:combat.blocker};
   }
@@ -1121,6 +1190,10 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='shared-keys'){
+        game.story.route=sharedKeysRoute(game.priorOutcome);
+        if(game.story.route==='keys') game.story.keyBearers=[];
+      }
       if(game.episode==='gate-charter') game.story.route=gateCharterRoute(game.priorOutcome);
       if(game.episode==='first-petition') game.story.route=firstPetitionRoute(game.priorOutcome);
       if(game.episode==='common-table'){
@@ -1230,6 +1303,10 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='assign-key'){
+    assignSharedKey(game,seat,data.id);
     return;
   }
   if(data.type==='call-hearing'){
@@ -1424,6 +1501,7 @@ export function act(game, seat, data){
         if(hasNode(p,'weave',2)) drawCard(p);
       }else recipient.earlyShield=(recipient.earlyShield??0)+shieldAmount(p);
       game.last=p.name+' cast '+card.name+'.';
+      recordLanePlay(game,seat,false);
       return;
     }
     if(cost>p.mana) throw Error('You need more mana.');
@@ -1465,6 +1543,7 @@ export function act(game, seat, data){
     else if(card.heal||card.ramp) game.effect={type:'heal',seat};
     else game.effect={type:card.freeze?'shield':'boost',seat:enemySeat,unit:target?.id};
     if(card.power) seatDelegate(game,seat,unit.kind);
+    recordLanePlay(game,seat,Boolean(card.power));
   }else if(data.type==='attack'){
     if(game.rules>=3) throw Error('Declare your attackers together.');
     const unit=p.board.find(unit=>unit.id===data.id && unit.ready);

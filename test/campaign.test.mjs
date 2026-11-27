@@ -1141,3 +1141,104 @@ test('both Gate Charter routes retain the ordinary battle endings',()=>{
     assert.equal(view(lost,0,0).chapterOutcome,'lost');
   }
 });
+
+test('the shared keys can go to two allies and a fallen bearer has to be replaced',()=>{
+  const game=chapter('standard','shared-keys','charter-ratified');
+  game.players.splice(1,0,{...player('Second ally','ally'),team:0});
+  const [host,ally,sentinel]=game.players;
+  const give=(seat,id)=>act(game,seat,{type:'assign-key',id});
+  host.hand=[];
+  ally.hand=[];
+  host.board=[{kind:'guard',id:'first',hp:3,ready:true}];
+  ally.board=[{kind:'guard',id:'second',hp:3},{kind:'guard',id:'spare',hp:3}];
+  sentinel.board=[{kind:'wolf',id:'attacker',hp:2}];
+
+  assert.equal(game.story.route,'keys');
+  give(0,'first');
+  assert.equal(host.mana,0);
+  assert.equal(host.board[0].ready,true);
+  assert.throws(()=>give(0,'first'),/already holds a key/i);
+  endTurn(game);
+  give(1,'second');
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+  act(game,2,{type:'attack-batch',opponent:1,ids:['attacker']});
+  act(game,1,{type:'blocks',blocks:[{attacker:'attacker',blocker:'second'}]});
+  assert.equal(ally.board.some(unit=>unit.id==='second'),false);
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+  assert.deepEqual(game.story.keyBearers,[{seat:0,id:'first'}]);
+
+  endTurn(game);
+  give(1,'spare');
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+  endTurn(game);
+  assert.equal(game.story.marks,1);
+  assert.deepEqual(game.story.keyBearers,[]);
+
+  give(0,'first');
+  endTurn(game);
+  give(1,'spare');
+  endTurn(game);
+  endTurn(game);
+  assert.equal(view(game,-1,0).chapterOutcome,'bars-lifted');
+});
+
+test('rallying a lane needs a creature and a spell played from hand on the same allied turn',()=>{
+  const game=chapter('veteran','shared-keys','copies-posted');
+  const [ally,sentinel]=game.players;
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  const play=(id,target)=>act(game,0,{type:'play',id,target,opponent:1});
+
+  assert.equal(game.story.route,'lanes');
+  assert.throws(()=>act(game,0,{type:'assign-key',id:'bad'}),/unavailable/i);
+  cycle();
+  ally.hand=[{kind:'scout',id:'scout'},{kind:'veil',id:'veil'}];
+  sentinel.board=[{kind:'scout',id:'attacker',hp:1}];
+  play('scout');
+  endTurn(game);
+  act(game,1,{type:'attack-batch',opponent:0,ids:['attacker']});
+  act(game,0,{type:'blocks',blocks:[]});
+  act(game,0,{type:'react',id:'veil',strike:'attacker'});
+  endTurn(game);
+  assert.equal(game.story.marks,0);
+
+  ally.hand=[{kind:'ward',id:'ward'}];
+  play('ward');
+  cycle();
+  assert.equal(game.story.marks,0);
+
+  ally.hand=[{kind:'scout',id:'second'},{kind:'surge',id:'surge'}];
+  sentinel.board=[];
+  play('second');
+  act(game,0,{type:'attack-batch',opponent:1,ids:['scout']});
+  act(game,0,{type:'react',id:'surge',strike:'scout'});
+  assert.equal(game.story.marks,0);
+  cycle();
+  assert.equal(game.story.marks,1);
+
+  for(let groups=2;groups<=4;groups++){
+    ally.hand=[{kind:'guard',id:'guard'+groups},{kind:'ward',id:'ward'}];
+    play('ward');
+    play('guard'+groups);
+    endTurn(game);
+    assert.equal(game.story.marks,groups);
+    if(groups<4){
+      assert.equal(game.winner,null);
+      endTurn(game);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'lanes-rallied');
+});
+
+test('both Shared Keys paths retain the ordinary battle endings',()=>{
+  for(const outcome of ['charter-ratified','copies-posted']){
+    const won=chapter('standard','shared-keys',outcome);
+    act(won,1,{type:'concede'});
+    assert.equal(view(won,0,0).chapterOutcome,'detachment');
+    const lost=chapter('standard','shared-keys',outcome);
+    act(lost,0,{type:'concede'});
+    assert.equal(view(lost,0,0).chapterOutcome,'lost');
+  }
+});

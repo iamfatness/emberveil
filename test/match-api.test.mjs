@@ -316,3 +316,19 @@ test('The Gate Charter uses the First Petition ending to select its route',async
     assert.equal(started.data.story.marks,0);
   }
 });
+
+test('The Shared Keys chooses its route from the Gate Charter ending',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [
+    ['charter-ratified','keys'],['copies-posted','lanes'],['detachment','keys'],['copies-through','keys'],[undefined,'keys']
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'shared-keys',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'shared-keys');
+    assert.equal(room.priorOutcome,priorOutcome==='copies-through'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.marks,0);
+  }
+});
