@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -372,7 +372,44 @@ function registerPanel(active){
     </section>`;
 }
 
+function dawnPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['doors-at-dawn'];
+  const endings={
+    'names-read':['The Court Heard Them','The clerk reads the last name before the doors shut. People in the gallery repeat it down the stairs. By morning it is written on the outside of the door.'],
+    'copies-read':['The Shelters Read Aloud','The last shelter folds its copy beside the bread. By sunrise, people on both sides of the gates know a name the court had struck out.'],
+    detachment:['The Doors Still Stand','The last Sentinel falls back. Neri props the door open with a stool. There is still time to gather the people who came to listen.'],
+    lost:['The Watch Takes the Steps','When the Watch reaches the doors, the listeners leave by the back steps. One of them keeps saying the first name.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const shelters=(story?.route??dawnRoute(priorOutcome))==='shelters';
+  const goal=dawnGoal(difficulty);
+  const marks=story?.marks??0;
+  const label=shelters?'Shelters heard':'Readings finished';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  if(shelters) return `<section class="field story" aria-label="Match story"><h2>${title}</h2><p>${intro} The shelters have their copies. They send word for a clear street.</p>
+    <p>When an ally deals combat damage directly to a Sentinel, one shelter reads its copy. This advances once per turn. Reach ${goal} readings or defeat the Sentinels to win.</p>
+    ${progress}</section>`;
+
+  const hearingIn=story?.hearingIn??dawnHearingTurns;
+  const mine=game.players[game.seat];
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const canRead=active&&hearingIn>0&&ready.length&&story.channelTurn!==game.round&&mine.mana>=dawnReadingCost;
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} ${priorOutcome==='court-record'?'The clerk brings the books out where the gallery can hear.':'Neri brings the receipt and asks the court to hear the names.'}</p>
+    ${hearingIn?`<p><strong>${hearingIn===1?'The hearing closes on the next Watch turn.':`The hearing closes in ${hearingIn} Watch turns.`}</strong></p>
+      <p>Finish ${goal} readings before the Watch closes the hearing, or defeat the Sentinels. Read once per turn. The chosen creature cannot attack or block until it readies.</p>`:
+      '<p>The Watch closed the hearing. Defeat the Sentinels to win.</p>'}
+    ${progress}
+    ${story&&hearingIn?`${active&&ready.length?`<label for="dawn-reader">Creature to read the names</label>
+      <select id="dawn-reader">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:''}
+      <button class="outline" data-action="read-names" ${canRead?'':'disabled'}>Read the names · ${dawnReadingCost} mana</button>`:''}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='doors-at-dawn') return dawnPanel(active);
   if(game.episode==='ash-register') return registerPanel(active);
   if(game.episode==='third-seal') return archivePanel(active);
   if(game.episode==='orchard') return orchardPanel(active);
@@ -566,6 +603,7 @@ function render(){
   const result=outcome?`<section class="field"><h2>${escape(outcome)}</h2>${storyPanel()}
     <div class="result-actions"><a class="quiet" href="/?watch=1&amp;room=${room}">Share final battlefield</a>
     ${chapterActions}</div></section>`:'';
+  const hearingWarning=game.episode==='doors-at-dawn'&&game.story?.hearingIn===1;
   const archiveWarning=game.episode==='third-seal'&&game.story?.archiveIn===1&&game.story.route!=='witness';
   const orchardWarning=game.episode==='orchard'&&game.story?.patrolIn===1&&!game.story.sheltered[game.story.patrol];
   const foundryWarning=game.episode==='foundry'&&game.story?.heatIn===1&&!game.story.vented;
@@ -573,13 +611,13 @@ function render(){
     {id:'combat',label:'Combat',html:combatPanel},
     {id:'choice',label:'Card choice',html:choicePanel},
     {id:'tree',label:`Tree · ${mine.growth}`,html:treePanel(mine,active)},
-    {id:'story',label:archiveWarning?'Story · Bell next':orchardWarning?'Story · Sweep next':foundryWarning?'Story · Blast next':game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
+    {id:'story',label:hearingWarning?'Story · Hearing closes next':archiveWarning?'Story · Bell next':orchardWarning?'Story · Sweep next':foundryWarning?'Story · Blast next':game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
     {id:'table',label:game.truce?.to===game.seat&&!game.truce.accepted?'Truce offer':'Table',html:table},
     {id:'result',label:'Result',html:result}
   ].filter(panel=>panel.html);
   const panel=panels.find(panel=>panel.id===openPanel);
   const tabs=panels.map(item=>`<button class="panel-toggle" data-action="panel" data-panel="${item.id}" aria-expanded="${panel===item}"
-    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'||item.id==='story'&&(foundryWarning||orchardWarning||archiveWarning)?'data-attention':''}>${item.label}</button>`).join('');
+    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'||item.id==='story'&&(foundryWarning||orchardWarning||archiveWarning||hearingWarning)?'data-attention':''}>${item.label}</button>`).join('');
   const hand=mine.hand.map(unit=>{
     const reaction=cards[unit.kind].reaction;
     const early=active&&!game.attacked&&mine.board.length&&earlyReaction(mine,unit.kind);
@@ -719,6 +757,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='read-names') await move({type:action,id:$('dawn-reader')?.value});
   if(action==='record-page') await move({type:action,page:button.dataset.page,id:$('register-scribe')?.value});
   if(action==='place-register') await move({type:action,keeper:button.dataset.keeper});
   if(action==='present-evidence') await move({type:action,route:button.dataset.route,id:$('archive-guard')?.value});

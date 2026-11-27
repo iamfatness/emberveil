@@ -496,3 +496,87 @@ test('winning by combat leaves an unfinished register and conceding loses it',()
   act(lost,0,{type:'concede'});
   assert.equal(view(lost,0,0).chapterOutcome,'lost');
 });
+
+test('the public reading commits mana and a creature on each turn, then wins',()=>{
+  const game=chapter('standard','doors-at-dawn','court-record');
+  const ally=game.players[0];
+  const read={type:'read-names',id:'reader'};
+  ally.board=[{kind:'guard',id:'reader',hp:3,ready:true}];
+  assert.equal(game.story.route,'court');
+  assert.equal(game.story.hearingIn,6);
+  assert.throws(()=>act(game,0,read),/more mana/);
+  for(let pages=1;pages<=3;pages++){
+    endTurn(game);
+    endTurn(game);
+    act(game,0,read);
+    assert.equal(game.story.marks,pages);
+    assert.equal(ally.mana,ally.max-2);
+    assert.equal(ally.board[0].exhausted,true);
+    if(pages===1) assert.throws(()=>act(game,0,read),/once per turn/);
+  }
+  assert.equal(view(game,0,0).chapterOutcome,'names-read');
+});
+
+test('the hearing clock runs once per Watch round and closure leaves combat available',()=>{
+  const game=chapter('veteran','doors-at-dawn','detachment');
+  game.players.push({...player('Second Sentinel',null,'orrun'),bot:true,team:1});
+  const read={type:'read-names',id:'reader'};
+  game.players[0].board=[{kind:'guard',id:'reader',hp:3}];
+  for(let remaining=5;remaining>=0;remaining--){
+    endTurn(game);
+    assert.equal(game.story.hearingIn,remaining);
+    endTurn(game);
+    assert.equal(game.story.hearingIn,remaining);
+    endTurn(game);
+  }
+  assert.equal(game.winner,null);
+  assert.throws(()=>act(game,0,read),/hearing is closed/);
+  act(game,1,{type:'concede'});
+  act(game,2,{type:'concede'});
+  assert.equal(view(game,0,0).chapterOutcome,'detachment');
+});
+
+test('shelter copies advance once per combat turn and only after positive direct damage',()=>{
+  const game=chapter('veteran','doors-at-dawn','shelter-copies');
+  const [ally,sentinel]=game.players;
+  const attack={type:'attack-batch',opponent:1,ids:['first','second']};
+  assert.equal(game.story.route,'shelters');
+  assert.equal(game.story.hearingIn,undefined);
+  assert.throws(()=>act(game,0,{type:'read-names'}),/unavailable/);
+  ally.board=[{kind:'guard',id:'first',hp:3,ready:true},{kind:'guard',id:'second',hp:3,ready:true}];
+  sentinel.board=[{kind:'guard',id:'blocker',hp:3,ready:true}];
+  ally.hand=[{kind:'veil',id:'cover'}];
+  act(game,0,attack);
+  act(game,1,{type:'blocks',blocks:[{attacker:'first',blocker:'blocker'}]});
+  act(game,0,{type:'react',id:'cover',strike:'second'});
+  assert.equal(game.story.marks,0);
+  assert.equal(sentinel.life,20);
+
+  sentinel.board=[];
+  for(let copies=1;copies<=4;copies++){
+    endTurn(game);
+    endTurn(game);
+    ally.hand=[];
+    act(game,0,attack);
+    assert.equal(game.story.marks,copies);
+    if(copies===3) assert.equal(game.winner,null);
+  }
+  assert.equal(view(game,0,0).chapterOutcome,'copies-read');
+});
+
+test('finishing the last shelter reading with a lethal attack keeps the story ending',()=>{
+  const game=chapter('standard','doors-at-dawn','shelter-copies');
+  const [ally,sentinel]=game.players;
+  const attack={type:'attack-batch',opponent:1,ids:['reader']};
+  ally.board=[{kind:'guard',id:'reader',hp:3,ready:true}];
+  sentinel.life=6;
+  for(let hit=0;hit<3;hit++){
+    ally.hand=[];
+    act(game,0,attack);
+    if(hit===2) break;
+    endTurn(game);
+    endTurn(game);
+  }
+  assert.equal(sentinel.eliminated,true);
+  assert.equal(view(game,0,0).chapterOutcome,'copies-read');
+});

@@ -188,6 +188,7 @@ export const lore={
   orchard:{title:'The Thorn Orchard',intro:'Families from the city sleep under the briars. The terrace beds feed them. Sylva finds a Watch mark on both paths and asks the party to keep both beds standing.'},
   'third-seal':{title:'The Third Seal',intro:'A family brings Neri a gate receipt stamped with three seals. The Moon archivist opens the side door. At the closing bell the Watch will seal it again.'},
   'ash-register':{title:'The Ash Register',intro:'Neri lays two books on the hearing table. One is for the orders that shut the gates. One is for the people who slept beneath them. The Watch is coming for the books.'},
+  'doors-at-dawn':{title:'The Doors at Dawn',intro:'The Watch comes at dawn. At every door there is a book, or someone waiting to hear one read.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -200,7 +201,8 @@ export const chapters={
   foundry:{title:lore.foundry.title,revision:1,next:'orchard',outcomes:['workers','court','detachment','lost']},
   orchard:{title:lore.orchard.title,revision:1,next:'third-seal',outcomes:['orchard-held','detachment','lost']},
   'third-seal':{title:lore['third-seal'].title,revision:1,next:'ash-register',outcomes:['ledger','witness','detachment','lost']},
-  'ash-register':{title:lore['ash-register'].title,revision:1,outcomes:['court-record','shelter-copies','detachment','lost']}
+  'ash-register':{title:lore['ash-register'].title,revision:1,next:'doors-at-dawn',outcomes:['court-record','shelter-copies','detachment','lost']},
+  'doors-at-dawn':{title:lore['doors-at-dawn'].title,revision:1,outcomes:['names-read','copies-read','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -244,6 +246,11 @@ export const registerCost=2;
 export const registerRecovery=2;
 export const registerGoal=difficulty=>difficulty==='veteran'?3:2;
 export const registerStartingPages=outcome=>({orders:outcome==='ledger'?1:0,shelter:outcome==='witness'?1:0});
+
+export const dawnRoute=outcome=>outcome==='shelter-copies'?'shelters':'court';
+export const dawnReadingCost=2;
+export const dawnHearingTurns=6;
+export const dawnGoal=difficulty=>difficulty==='veteran'?4:3;
 
 export const objectiveCost=2;
 export const objectiveGoal=3;
@@ -318,6 +325,8 @@ function endTurn(game){
 
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
+const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
+
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
   game.last=message;
@@ -325,7 +334,7 @@ function eliminate(game, seat, message){
   const remaining=game.players.flatMap((p,i)=>p.eliminated?[]:[i]);
   if(remaining.length&&remaining.every(i=>allies(game,i,remaining[0]))){
     game.winner=remaining[0];
-    if(game.story&&(['foundry','orchard','third-seal','ash-register'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode))) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
+    if(game.story&&hasStoryEnding(game.episode)) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
   }
 }
 const firstSentinelTurn=game=>game.active===game.players.findIndex(p=>p.bot&&!p.eliminated);
@@ -522,6 +531,41 @@ function workOnRegister(game,seat,data){
     'Both records are complete. Choose who keeps them.':p.name+' added a page to the register.';
 }
 
+function advanceDawnHearing(game){
+  const story=game.story;
+  if(game.episode!=='doors-at-dawn'||!story?.hearingIn||!firstSentinelTurn(game)) return;
+  if(--story.hearingIn===0) game.last='The Watch closed the hearing. Defeat the Sentinels to win.';
+}
+
+function readNames(game,seat,id){
+  const {story}=game;
+  const p=game.players[seat];
+  if(game.episode!=='doors-at-dawn'||story?.route!=='court'||p.bot) throw Error('The public reading is unavailable.');
+  if(!story.hearingIn) throw Error('The hearing is closed.');
+  if(story.channelTurn===game.round) throw Error('You can read once per turn.');
+  assignChapterGuard(p,id,dawnReadingCost);
+  story.channelTurn=game.round;
+  story.marks++;
+  game.last=p.name+' read the names aloud.';
+  if(story.marks===dawnGoal(game.difficulty)){
+    story.ending='names-read';
+    game.winner=seat;
+  }
+}
+
+function advanceDawnCopies(game,combat,directDamage){
+  const {story,players}=game;
+  if(game.episode!=='doors-at-dawn'||story?.route!=='shelters'||directDamage<=0||
+    players[combat.attacker].bot||!players[combat.defender].bot||story.channelTurn===game.round) return;
+  story.channelTurn=game.round;
+  story.marks++;
+  if(story.marks===dawnGoal(game.difficulty)){
+    story.ending='copies-read';
+    game.winner??=combat.attacker;
+    game.last+=' Every shelter has read its copy.';
+  }else game.last+=' A shelter read its copy.';
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
   game.attacked=false;
@@ -556,6 +600,7 @@ function beginTurn(game){
   advanceFoundry(game);
   advanceOrchard(game);
   advanceArchive(game);
+  advanceDawnHearing(game);
   if(game.winner!==null) return;
   if(hasNode(p,'shelter',2)&&!p.board.length) p.life=Math.min(20,p.life+2);
   if(hasNode(p,'witness',2)&&livingOpponents(game,game.active).some(other=>other.board.length>p.board.length)) drawCard(p);
@@ -604,11 +649,12 @@ function recordLeaderDamage(game,combat,unit,damage){
   entry.damage+=damage;
   return entry.damage>=leaderDamageGoal;
 }
-function finishCombatDamage(game,combat,leaderLethal){
+function finishCombatDamage(game,combat,leaderLethal,directDamage){
   const defender=game.players[combat.defender];
   if(leaderLethal||defender.life<=0){
     eliminate(game,combat.defender,defender.name+(leaderLethal?' fell to leader damage.':' was eliminated.'));
   }
+  advanceDawnCopies(game,combat,directDamage);
 }
 function resolveCombat(game){
   const combat=game.combat;
@@ -625,7 +671,7 @@ function resolveCombat(game){
   removeFallen(defender);
   game.combat=null;
   game.last=blocker?cards[blocker.kind].name+' blocked '+cards[unit.kind].name+'.':defender.name+' took '+damage+' combat damage.';
-  finishCombatDamage(game,combat,!blocker&&recordLeaderDamage(game,combat,unit,damage));
+  finishCombatDamage(game,combat,!blocker&&recordLeaderDamage(game,combat,unit,damage),blocker?0:damage);
 }
 function finishBlocking(game, id){
   const combat=game.combat;
@@ -670,7 +716,7 @@ function resolveBatch(game){
   game.turnDeadline=Date.now()+combat.turnRemaining;
   game.effect={type:'impact',seat:combat.defender};
   game.last=defender.name+' took '+total+' combat damage.';
-  finishCombatDamage(game,combat,leaderLethal);
+  finishCombatDamage(game,combat,leaderLethal,total);
 }
 function batchReactions(game){
   const combat=game.combat;
@@ -830,6 +876,10 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='doors-at-dawn'){
+        game.story.route=dawnRoute(game.priorOutcome);
+        if(game.story.route==='court') game.story.hearingIn=dawnHearingTurns;
+      }
       if(game.episode==='ash-register') game.story.pages=registerStartingPages(game.priorOutcome);
       if(game.episode==='third-seal') game.story.archiveIn=game.foundryKeyholder==='court'?6:5;
       if(game.episode==='orchard') Object.assign(game.story,{
@@ -926,6 +976,10 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='read-names'){
+    readNames(game,seat,data.id);
     return;
   }
   if(data.type==='record-page'||data.type==='place-register'){
@@ -1209,7 +1263,7 @@ function chapterOutcome(game){
   if(game.winner==null||!game.chapter||!game.story) return undefined;
   const lost=game.players[game.winner].bot;
   if(game.episode==='accord') return lost?'gates-fell':game.story.gateHeld?game.story.gate:'column';
-  if(['foundry','orchard','third-seal','ash-register'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
+  if(hasStoryEnding(game.episode)) return game.story.ending;
   return game.story.marks===wardMarks?(lost?'ward-restored-loss':'ward-restored'):(lost?'vault-lost':'lantern');
 }
 

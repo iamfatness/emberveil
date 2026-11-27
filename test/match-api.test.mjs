@@ -205,3 +205,17 @@ test('the Ash Register accepts Third Seal endings, including ones saved before t
     assert.deepEqual(started.data.story.pages,pages);
   }
 });
+
+test('The Doors at Dawn uses the stored Ash Register custody to select the objective',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [['court-record','court'],['shelter-copies','shelters'],['detachment','court'],['witness','court']]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'doors-at-dawn',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'doors-at-dawn');
+    assert.equal(room.priorOutcome,priorOutcome==='witness'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.hearingIn,route==='court'?6:undefined);
+  }
+});
