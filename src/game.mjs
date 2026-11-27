@@ -198,6 +198,7 @@ export const lore={
   'shared-keys':{title:'The Shared Keys',intro:'Orrun puts the two keys down beside the gate. The bars are still in their sockets. Across the road, a voice reads the new order aloud.'},
   'open-road':{title:'The Open Road',intro:'Tala walks the road beyond the gate. The wagons wait where the stones end. Farther out, the Watch has set a line across the track.'},
   'reed-ford':{title:'The Reed Ford',intro:'Iskar stands where the road goes into the river. He knows where the old stones are. The Watch is coming up the far bank.'},
+  'far-bank':{title:'The Far Bank',intro:'Iskar leads the people up from the ford. The bank has a dry shelf and a line of reeds. Tala hears the Watch on the road behind them.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -220,7 +221,8 @@ export const chapters={
   'gate-charter':{title:lore['gate-charter'].title,revision:1,next:'shared-keys',outcomes:['charter-ratified','copies-posted','detachment','lost']},
   'shared-keys':{title:lore['shared-keys'].title,revision:1,next:'open-road',outcomes:['bars-lifted','lanes-rallied','detachment','lost']},
   'open-road':{title:lore['open-road'].title,revision:1,next:'reed-ford',outcomes:['wagons-through','crowd-through','detachment','lost']},
-  'reed-ford':{title:lore['reed-ford'].title,revision:1,outcomes:['ford-bridged','shallows-crossed','detachment','lost']}
+  'reed-ford':{title:lore['reed-ford'].title,revision:1,next:'far-bank',outcomes:['ford-bridged','shallows-crossed','detachment','lost']},
+  'far-bank':{title:lore['far-bank'].title,revision:1,outcomes:['wagons-unloaded','families-sheltered','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -317,6 +319,12 @@ export const fordPlanks=kind=>cards[kind].power?2:1;
 export const shallowsCost=1;
 export const shallowsOpen=game=>game.players.some(player=>player.bot&&!player.eliminated&&player.board.some(unit=>unit.exhausted));
 
+export const farBankRoute=outcome=>outcome==='shallows-crossed'?'shelter':'unload';
+export const farBankGoal=difficulty=>difficulty==='veteran'?4:3;
+export const farBankUnloadMana=3;
+export const farBankShelterDamage=3;
+export const farBankManaUsed=game=>Math.max(0,(game.story?.unloadStartMana??0)-(game.players[game.active]?.mana??0));
+
 export const objectiveCost=2;
 export const objectiveGoal=3;
 export const leaderDamageGoal=12;
@@ -387,12 +395,13 @@ function endTurn(game){
   cleanDamage(game);
   admitFamilies(game);
   rallySharedLane(game);
+  unloadFarBankWagon(game);
   if(game.winner===null) advance(game);
 }
 
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
-const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition','gate-charter','shared-keys','open-road','reed-ford'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
+const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition','gate-charter','shared-keys','open-road','reed-ford','far-bank'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
 
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
@@ -942,6 +951,33 @@ function workAtReedFord(game,seat,data){
   }
 }
 
+function unloadFarBankWagon(game){
+  const {story,active}=game;
+  if(game.episode!=='far-bank'||story?.route!=='unload'||game.winner!==null) return;
+  const p=game.players[active];
+  if(p.bot||p.eliminated||farBankManaUsed(game)<farBankUnloadMana) return;
+  story.marks++;
+  game.last=p.name+' helped unload a wagon.';
+  if(story.marks===farBankGoal(game.difficulty)){
+    story.ending='wagons-unloaded';
+    game.winner=active;
+  }
+}
+
+function shelterFarBankGroup(game,combat,directDamage){
+  const {story,players}=game;
+  if(game.episode!=='far-bank'||story?.route!=='shelter'||game.winner!==null||
+    directDamage<1||directDamage>farBankShelterDamage) return;
+  const defender=players[combat.defender];
+  if(!players[combat.attacker].bot||defender.bot||defender.eliminated) return;
+  story.marks++;
+  game.last+=' A group reached shelter behind the reeds.';
+  if(story.marks===farBankGoal(game.difficulty)){
+    story.ending='families-sheltered';
+    game.winner=combat.defender;
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
   advanceSharedKeys(game,p);
@@ -953,6 +989,7 @@ function beginTurn(game){
   p.max=Math.min(10,p.max+1+(p.keyManaBonus?1:0));
   delete p.keyManaBonus;
   p.mana=p.max;
+  if(game.episode==='far-bank'&&game.story?.route==='unload'&&!p.bot) game.story.unloadStartMana=p.mana;
   if(game.round%3===0){
     for(const participant of game.players){
       if(!participant.bot&&!participant.eliminated) participant.growth=(participant.growth??0)+1;
@@ -1044,6 +1081,7 @@ function finishCombatDamage(game,combat,leaderLethal,directDamage){
   advanceDawnCopies(game,combat,directDamage);
   holdLanding(game,combat,directDamage);
   advanceRoadCrowd(game,combat);
+  shelterFarBankGroup(game,combat,directDamage);
   if(game.episode==='gate-charter'&&game.story?.charterHearing&&attacker.bot&&!defender.bot&&directDamage>0){
     delete game.story.charterHearing;
     game.last+=' The charter hearing broke up.';
@@ -1266,6 +1304,7 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='far-bank') game.story.route=farBankRoute(game.priorOutcome);
       if(game.episode==='reed-ford') game.story.route=reedFordRoute(game.priorOutcome);
       if(game.episode==='open-road') game.story.route=openRoadRoute(game.priorOutcome);
       if(game.episode==='shared-keys'){

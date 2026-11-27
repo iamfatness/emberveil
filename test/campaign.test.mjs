@@ -1409,3 +1409,89 @@ test('both Reed Ford paths keep the ordinary battle endings',()=>{
     assert.equal(view(lost,0,0).chapterOutcome,'lost');
   }
 });
+
+test('unloading wagons counts mana used that turn, not extra capacity from a crystal',()=>{
+  const game=chapter('standard','far-bank','ford-bridged');
+  const ally=game.players[0];
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  assert.equal(game.story.route,'unload');
+  cycle();
+  ally.hand=[{kind:'forge',id:'crystal'}];
+  act(game,0,{type:'play',id:'crystal'});
+  assert.equal(ally.max,3);
+  assert.equal(ally.mana,0);
+  cycle();
+  assert.equal(game.story.marks,0);
+
+  for(let wagons=1;wagons<=3;wagons++){
+    ally.hand=[{kind:'guard',id:'guard'+wagons},{kind:'scout',id:'scout'+wagons}];
+    act(game,0,{type:'play',id:'guard'+wagons});
+    act(game,0,{type:'play',id:'scout'+wagons});
+    assert.equal(game.story.marks,wagons-1);
+    endTurn(game);
+    assert.equal(game.story.marks,wagons);
+    if(wagons<3){
+      assert.equal(game.winner,null);
+      endTurn(game);
+      assert.equal(game.story.marks,wagons);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'wagons-unloaded');
+});
+
+test('the crowd reaches shelter only after a surviving ally takes one to three combat damage',()=>{
+  const game=chapter('veteran','far-bank','shallows-crossed');
+  const [ally,sentinel]=game.players;
+  const fight=(kinds,block=false,shield=false)=>{
+    ally.hand=shield?[{kind:'veil',id:'veil'}]:[];
+    ally.board=block?[{kind:'guard',id:'blocker',hp:3}]:[];
+    sentinel.board=kinds.map((kind,i)=>({kind,id:'hit'+i,hp:kind==='guard'?3:2}));
+    endTurn(game);
+    act(game,1,{type:'attack-batch',opponent:0,ids:sentinel.board.map(unit=>unit.id)});
+    if(game.combat?.phase==='block') act(game,0,{type:'blocks',blocks:[{attacker:'hit0',blocker:'blocker'}]});
+    if(shield) act(game,0,{type:'react',id:'veil',strike:'hit0'});
+  };
+  assert.equal(game.story.route,'shelter');
+
+  fight(['guard'],true);
+  assert.equal(game.story.marks,0);
+  assert.equal(ally.life,20);
+  endTurn(game);
+  fight(['guard','guard']);
+  assert.equal(game.story.marks,0);
+  assert.equal(ally.life,16);
+  endTurn(game);
+
+  for(let groups=1;groups<=4;groups++){
+    const life=ally.life;
+    if(groups===1) fight(['wolf'],false,true);
+    else fight(['guard','guard'],true);
+    assert.equal(ally.life,life-(groups===1?1:2));
+    assert.equal(game.story.marks,groups);
+    if(groups<4){
+      assert.equal(game.winner,null);
+      endTurn(game);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'families-sheltered');
+});
+
+test('a lethal Sentinel hit cannot shelter a group',()=>{
+  const game=chapter('standard','far-bank','shallows-crossed');
+  const [ally,sentinel]=game.players;
+  ally.life=2;
+  ally.hand=[];
+  sentinel.board=[{kind:'guard',id:'watch',hp:3}];
+  endTurn(game);
+  act(game,1,{type:'attack-batch',opponent:0,ids:['watch']});
+  assert.equal(game.story.marks,0);
+  assert.equal(view(game,-1,0).chapterOutcome,'lost');
+});
+
+test('both Far Bank paths retain the ordinary battle victory',()=>{
+  for(const outcome of ['ford-bridged','shallows-crossed']){
+    const won=chapter('standard','far-bank',outcome);
+    act(won,1,{type:'concede'});
+    assert.equal(view(won,0,0).chapterOutcome,'detachment');
+  }
+});

@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn,openRoadRoute,openRoadGoal,wagonCost,reedFordRoute,reedFordGoal,fordPlanks,shallowsCost,shallowsOpen} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn,openRoadRoute,openRoadGoal,wagonCost,reedFordRoute,reedFordGoal,fordPlanks,shallowsCost,shallowsOpen,farBankRoute,farBankGoal,farBankUnloadMana,farBankShelterDamage,farBankManaUsed} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -750,7 +750,39 @@ function reedFordPanel(active){
     </section>`;
 }
 
+function farBankPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['far-bank'];
+  const endings={
+    'wagons-unloaded':['A Place on the Bank','The last wagon stands empty. Iskar sets a sack on the highest stone to keep it dry. Someone starts handing out blankets.'],
+    'families-sheltered':['Beyond the Reeds','Tala backs away from the river. The Watch follows her far enough for the last group to reach dry ground. She waits until she hears every name called.'],
+    detachment:['The Bank Is Quiet','The Watch leaves the river. Iskar comes down from the shelf and asks who still needs a dry place to sit.'],
+    lost:['The Shelf Goes Dark','The Watch takes the dry ground. Iskar leads the people into the reeds and asks them to stay close enough to hear each other.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const route=story?.route??farBankRoute(priorOutcome);
+  const goal=farBankGoal(difficulty);
+  const marks=story?.marks??0;
+  const label=route==='shelter'?'Groups sheltered':'Wagons unloaded';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  if(route==='shelter') return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} The people who crossed on foot wait in the reeds until Tala draws the Watch toward the open bank.</p>
+    <p>When an ally survives a Sentinel attack with 1 to ${farBankShelterDamage} combat damage taken, one group reaches shelter. Shelter ${goal} groups or defeat the Sentinels to win.</p>
+    ${progress}
+    </section>`;
+
+  const used=active?farBankManaUsed(game):0;
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} ${priorOutcome==='ford-bridged'?'The wagons are across. The drivers carry sacks up to the dry shelf.':'A wagon waits beside the dry shelf.'}</p>
+    <p>End your turn after using at least ${farBankUnloadMana} mana to unload one wagon. Unload ${goal} wagons or defeat the Sentinels to win.</p>
+    ${progress}
+    ${active?`<p>Mana used this turn · ${Math.min(used,farBankUnloadMana)} / ${farBankUnloadMana}${used>=farBankUnloadMana?' · End turn to unload a wagon.':''}</p>`:''}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='far-bank') return farBankPanel(active);
   if(game.episode==='reed-ford') return reedFordPanel(active);
   if(game.episode==='open-road') return openRoadPanel(active);
   if(game.episode==='shared-keys') return sharedKeysPanel(active);
@@ -906,7 +938,8 @@ function render(){
   const canKeepLamp=active&&game.episode==='common-table'&&game.story?.route==='lamps'&&mine.mana>=lampReserve&&mine.board.length;
   const lanePlay=active&&game.episode==='shared-keys'&&game.story?.route==='lanes'?lanePlayThisTurn(game):undefined;
   const canRallyLane=lanePlay?.creature&&lanePlay.spell;
-  const turnPrompt=canRallyLane?'End turn to rally a group.':canAdmit?'End turn to admit a group.':canKeepLamp?`Keep ${lampReserve} mana through the Watch to tend a lamp.`:game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
+  const canUnload=active&&game.episode==='far-bank'&&game.story?.route==='unload'&&farBankManaUsed(game)>=farBankUnloadMana;
+  const turnPrompt=canUnload?'End turn to unload a wagon.':canRallyLane?'End turn to rally a group.':canAdmit?'End turn to admit a group.':canKeepLamp?`Keep ${lampReserve} mana through the Watch to tend a lamp.`:game.active===game.seat?'Your turn':game.players[game.active].name+'’s turn';
   const prompt=selected?.type==='read-record'?'Choose an opponent whose hand Neri will read.':attackIds.length?`Choose an opponent for ${attackIds.length} attacker${attackIds.length===1?'':'s'}.`:selected?.own?'Choose one of your creatures.':selected?.playerOnly?'Choose an opposing player.':selected?.creatureOnly?'Choose an opposing creature.':selected?'Choose an opposing target.':turnPrompt;
   const attacker=combat&&game.players[combat.attacker];
   const defender=combat&&game.players[combat.defender];
@@ -927,7 +960,9 @@ function render(){
     '<p>A charter hearing is open. Prevent combat damage to the defending player to keep it open.</p>':'';
   const roadHint=game.episode==='open-road'&&game.story?.route==='crowd'&&defender?.bot?
     `<p>Groups through · ${game.story.marks} / ${openRoadGoal(game.difficulty)}. A group needs two attackers to survive the fight.</p>`:'';
-  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${landingHint}${petitionHint}${charterHint}${roadHint}${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
+  const farBankHint=game.episode==='far-bank'&&game.story?.route==='shelter'&&attacker?.bot?
+    `<p>A group reaches shelter if the defending player survives and takes 1 to ${farBankShelterDamage} combat damage.</p>`:'';
+  const batchPanel=combat?.strikes?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)}</strong><p>${blocking?'Assign each blocker once.':reacting?'Choose an attacker, then play a reaction or pass.':combat.phase==='block'?'Waiting for the defender.':'Reaction window.'}</p>${landingHint}${petitionHint}${charterHint}${roadHint}${farBankHint}${reactionWaiting}<div class="combat-grid">${batchRows}</div>${blocking?'<button class="gold" data-action="blocks">Confirm blockers</button>':''}${reacting?`<label for="reaction-target">Reaction target</label> <select id="reaction-target">${combat.strikes.map((strike,i)=>`<option value="${strike.unit}" ${reactionTarget===strike.unit?'selected':''}>${i+1}. ${cards[attacker.board.find(unit=>unit.id===strike.unit).kind].name}</option>`).join('')}</select> <button class="outline" data-action="pass">Pass</button>`:''}</section>`:'';
   const combatPanel=batchPanel||(combat?`<section class="field combat"><strong>${escape(attacker.name)} attacks ${escape(defender.name)} with ${cards[attackingCard.kind].name}</strong><p>${combat.phase==='block'?(blocking?'Choose a blocker on your battlefield.':'Waiting for the defender.'):reacting?'Play a reaction from your hand, or pass.':'Reaction window.'}</p>${reactionWaiting}${combat.phase==='react'?`<p>Attack bonus +${combat.boost} · Damage prevention ${combat.shield}</p>`:''}${blocking?'<button class="outline" data-action="no-block">Take the hit</button>':''}${reacting?'<button class="outline" data-action="pass">Pass</button>':''}</section>`:'');
   const teamLabel=p=>game.mode&&game.mode!=='ffa'?teamName(game.mode,p.team):'';
   const status=error||outcome||(mine.eliminated?'You’re eliminated.':blocking?'Assign blockers.':reacting?'Play a reaction from your hand or pass.':mine.choice?'Choose a card.':prompt);

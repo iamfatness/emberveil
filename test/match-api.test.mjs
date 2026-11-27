@@ -364,3 +364,19 @@ test('The Reed Ford chooses its route from the Open Road ending',async()=>{
     assert.equal(started.data.story.marks,0);
   }
 });
+
+test('The Far Bank chooses its route from the Reed Ford ending',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [
+    ['ford-bridged','unload'],['shallows-crossed','shelter'],['detachment','unload'],['crowd-through','unload'],[undefined,'unload']
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'far-bank',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'far-bank');
+    assert.equal(room.priorOutcome,priorOutcome==='crowd-through'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.marks,0);
+  }
+});
