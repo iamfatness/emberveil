@@ -186,6 +186,7 @@ export const lore={
   'open-accord':{title:'The Open Accord',intro:'At the Basalt Court, both houses have signed a new order. The Watch is still enforcing the old seal. The party must get the signed order to the court’s command bell before the gates close again.'},
   foundry:{title:'Keys to the Foundry',intro:'Orrun finds the furnace still lit. The workers kept it burning through the long Watch. Now the court has sent an officer for the keys, and a Sentinel stands in the doorway with the old order.'},
   orchard:{title:'The Thorn Orchard',intro:'Families from the city sleep under the briars. The terrace beds feed them. Sylva finds a Watch mark on both paths and asks the party to keep both beds standing.'},
+  'third-seal':{title:'The Third Seal',intro:'A family brings Neri a gate receipt stamped with three seals. The Moon archivist opens the side door. At the closing bell the Watch will seal it again.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -196,7 +197,8 @@ export const chapters={
   tide:{title:lore.tide.title,revision:1,next:'open-accord',outcomes:['causeway','tidal-stair','detachment']},
   'open-accord':{title:lore['open-accord'].title,revision:1,next:'foundry',outcomes:['direct','refuges','detachment']},
   foundry:{title:lore.foundry.title,revision:1,next:'orchard',outcomes:['workers','court','detachment','lost']},
-  orchard:{title:lore.orchard.title,revision:1}
+  orchard:{title:lore.orchard.title,revision:1,next:'third-seal',outcomes:['orchard-held','detachment','lost']},
+  'third-seal':{title:lore['third-seal'].title,revision:1}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -227,6 +229,13 @@ export const foundryDifficulty=difficulty=>difficulty==='veteran'?foundryRules.v
 export const orchardPlots={terraces:'Terrace beds',shelter:'Shelter beds'};
 export const orchardCost=2;
 export const orchardDifficulty=difficulty=>difficulty==='veteran'?{growth:3,interval:1}:{growth:2,interval:2};
+
+export const archiveRoutes={
+  ledger:{name:'Preserve the ledger',cost:2,steps:3},
+  witness:{name:'Bring a witness',cost:3,steps:3}
+};
+export const archiveCost=(route,game)=>archiveRoutes[route].cost-(route==='ledger'&&game.foundryKeyholder==='workers'&&!game.story?.marks?1:0);
+export const witnessLead=game=>game.priorOutcome==='orchard-held'?1:0;
 
 export const objectiveCost=2;
 export const objectiveGoal=3;
@@ -308,7 +317,7 @@ function eliminate(game, seat, message){
   const remaining=game.players.flatMap((p,i)=>p.eliminated?[]:[i]);
   if(remaining.length&&remaining.every(i=>allies(game,i,remaining[0]))){
     game.winner=remaining[0];
-    if(game.story&&(['foundry','orchard'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode))) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
+    if(game.story&&(['foundry','orchard','third-seal'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode))) game.story.ending=game.players[game.winner].bot?'lost':'detachment';
   }
 }
 const firstSentinelTurn=game=>game.active===game.players.findIndex(p=>p.bot&&!p.eliminated);
@@ -450,6 +459,35 @@ function tendOrchard(game,seat,data){
   }
 }
 
+function advanceArchive(game){
+  const story=game.story;
+  if(game.episode!=='third-seal'||!story?.archiveIn||!firstSentinelTurn(game)) return;
+  if(--story.archiveIn>0||story.route!=='ledger') return;
+  story.incompleteLedger=true;
+  delete story.route;
+  story.marks=0;
+  game.last='The archive shut before the copy was finished. A witness can still reach the hearing.';
+}
+function presentEvidence(game,seat,data){
+  const {story}=game;
+  const p=game.players[seat];
+  const {route}=data;
+  if(game.episode!=='third-seal'||!story||p.bot||!Object.hasOwn(archiveRoutes,route)) throw Error('Choose a way to bring evidence.');
+  if(story.route&&story.route!==route) throw Error('Your party has committed to another route.');
+  if(route==='ledger'&&!story.archiveIn) throw Error('The archive is closed.');
+  if(story.channelTurn===game.round) throw Error('You can advance the evidence once per turn.');
+  assignChapterGuard(p,data.id,archiveCost(route,game));
+  if(!story.route&&route==='witness') story.marks=witnessLead(game);
+  story.route=route;
+  story.channelTurn=game.round;
+  story.marks++;
+  game.last=route==='ledger'?p.name+' copied a page from the ledger.':p.name+' escorted the witness.';
+  if(story.marks===routeGoal(archiveRoutes[route],game.difficulty)){
+    story.ending=route;
+    game.winner=seat;
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
   game.attacked=false;
@@ -483,6 +521,7 @@ function beginTurn(game){
   advanceCourtThreat(game);
   advanceFoundry(game);
   advanceOrchard(game);
+  advanceArchive(game);
   if(game.winner!==null) return;
   if(hasNode(p,'shelter',2)&&!p.board.length) p.life=Math.min(20,p.life+2);
   if(hasNode(p,'witness',2)&&livingOpponents(game,game.active).some(other=>other.board.length>p.board.length)) drawCard(p);
@@ -757,6 +796,7 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='third-seal') game.story.archiveIn=game.foundryKeyholder==='court'?6:5;
       if(game.episode==='orchard') Object.assign(game.story,{
         plots:{terraces:0,shelter:game.priorOutcome==='workers'?1:0},
         sheltered:{terraces:false,shelter:false},
@@ -851,6 +891,10 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='present-evidence'){
+    presentEvidence(game,seat,data);
     return;
   }
   if(data.type==='tend'){
@@ -1126,7 +1170,7 @@ function chapterOutcome(game){
   if(game.winner==null||!game.chapter||!game.story) return undefined;
   const lost=game.players[game.winner].bot;
   if(game.episode==='accord') return lost?'gates-fell':game.story.gateHeld?game.story.gate:'column';
-  if(['foundry','orchard'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
+  if(['foundry','orchard','third-seal'].includes(game.episode)||Object.hasOwn(routesByEpisode,game.episode)) return game.story.ending;
   return game.story.marks===wardMarks?(lost?'ward-restored-loss':'ward-restored'):(lost?'vault-lost':'lantern');
 }
 
@@ -1136,7 +1180,7 @@ export function view(game, seat, revision){
     phase:combat.phase,deadline:combat.deadline,pendingReactions:combat.phase==='react'?[...combat.queue]:undefined,canReact:combat.strikes?combat.queue?.includes(seat):combat.queue?.[0]===seat,boost:combat.boost,shield:combat.shield};
   return {revision,seat,ranked:game.ranked,teamsPolitics:game.teamsPolitics,privateTable:game.privateTable,leaderDamageEnabled:game.leaderDamageEnabled,
     threat:tableThreat(game),objective:game.objective,truce:game.truce,truceOfferedTurn:game.truceOfferedTurn,chapter:game.chapter,
-    episode:game.episode,chapterRevision:game.chapterRevision,difficulty:game.difficulty,priorOutcome:game.priorOutcome,chapterOutcome:chapterOutcome(game),
+    episode:game.episode,chapterRevision:game.chapterRevision,difficulty:game.difficulty,priorOutcome:game.priorOutcome,foundryKeyholder:game.foundryKeyholder,chapterOutcome:chapterOutcome(game),
     record:game.record?.reader===seat?game.record:undefined,story:game.story,mode:game.mode,botCount:game.botCount,turnDeadline:game.turnDeadline,turnSeconds:game.turnSeconds,attacked:game.attacked,readyToStart:readyToStart(game),humanLimit:humanLimit(game),rules:game.rules,combat:visibleCombat,effect:game.effect,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
     players:game.players.map((p,i)=>({name:p.name,team:p.team,bot:p.bot,redrawn:p.redrawn,life:p.life,leaderDamage:game.leaderDamageEnabled?Object.values(p.leaderDamage??{}):undefined,mana:p.mana,max:p.max,leader:p.leader,leaderCost:p.leader?leaderCost(p):undefined,eliminated:!!p.eliminated,board:p.board,
       hand:i===seat?p.hand:undefined,choice:i===seat&&p.choice?{type:p.choice,cards:p.deck.slice(0,p.choice==='oracle'?1:2)}:undefined,handSize:p.hand.length,deckSize:p.deck.length,growth:p.growth||0,tree:p.tree,playedCreatureLastTurn:p.playedCreatureLastTurn,earlyReactionPlayed:p.earlyReactionPlayed,recordRead:i===seat?p.recordRead:undefined,unlocked:p.unlocked||0}))};

@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { act, player, view } from '../src/game.mjs';
 
-function chapter(difficulty, episode, priorOutcome) {
+function chapter(difficulty, episode, priorOutcome, foundryKeyholder) {
   const game = {
-    chapter: true, episode, priorOutcome, difficulty, mode: 'coop', botCount: 1, rules: 3,
+    chapter: true, episode, priorOutcome, foundryKeyholder, difficulty, mode: 'coop', botCount: 1, rules: 3,
     started: false, active: 0, round: 1, turnSeconds: 90, winner: null,
     players: [{ ...player('Rescuer', 'test'), team: 0 }],
   };
@@ -366,4 +366,58 @@ test('both Orchard beds must reach their goals and only one can be tended each t
   tend('shelter');
   assert.equal(view(game,0,0).chapterOutcome,'orchard-held');
   assert.equal(game.winner,0);
+});
+
+test('the Third Seal applies the Foundry help and Orchard lead independently',()=>{
+  const workers=chapter('standard','third-seal','orchard-held','workers');
+  const court=chapter('standard','third-seal','orchard-held','court');
+  assert.equal(workers.story.archiveIn,5);
+  assert.equal(court.story.archiveIn,6);
+  assert.equal(view(court,0,0).foundryKeyholder,'court');
+  workers.players[0].board=[{kind:'guard',id:'escort',hp:3,ready:true}];
+  act(workers,0,{type:'present-evidence',route:'ledger',id:'escort'});
+  assert.equal(workers.players[0].mana,0);
+  assert.equal(workers.story.marks,1);
+  court.players[0].board=[{kind:'guard',id:'escort',hp:3}];
+  for(let i=0;i<2;i++){endTurn(court);endTurn(court);}
+  act(court,0,{type:'present-evidence',route:'witness',id:'escort'});
+  assert.equal(court.story.marks,2);
+  endTurn(court);endTurn(court);
+  act(court,0,{type:'present-evidence',route:'witness',id:'escort'});
+  assert.equal(view(court,0,0).chapterOutcome,'witness');
+});
+
+test('the archive closes on time and an incomplete copy gives way to the witness route',()=>{
+  const game=chapter('veteran','third-seal','orchard-held');
+  const p=game.players[0];
+  p.board=[{kind:'guard',id:'escort',hp:3}];
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  cycle();
+  act(game,0,{type:'present-evidence',route:'ledger',id:'escort'});
+  assert.throws(()=>act(game,0,{type:'present-evidence',route:'witness',id:'escort'}),/committed/);
+  for(let i=0;i<4;i++) cycle();
+  assert.equal(game.story.archiveIn,0);
+  assert.equal(game.story.route,undefined);
+  assert.equal(game.story.marks,0);
+  assert.equal(game.story.incompleteLedger,true);
+  assert.throws(()=>act(game,0,{type:'present-evidence',route:'ledger',id:'escort'}),/archive is closed/);
+  for(let i=0;i<3;i++){
+    act(game,0,{type:'present-evidence',route:'witness',id:'escort'});
+    if(i<2) cycle();
+  }
+  assert.equal(game.winner,0);
+  assert.equal(view(game,0,0).chapterOutcome,'witness');
+});
+
+test('the ledger route can win before the bell and keeps the written evidence as its outcome',()=>{
+  const game=chapter('standard','third-seal','detachment');
+  game.players[0].board=[{kind:'guard',id:'escort',hp:3}];
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  cycle();
+  for(let i=0;i<3;i++){
+    act(game,0,{type:'present-evidence',route:'ledger',id:'escort'});
+    if(i<2) cycle();
+  }
+  assert.equal(game.winner,0);
+  assert.equal(view(game,0,0).chapterOutcome,'ledger');
 });

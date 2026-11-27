@@ -173,3 +173,17 @@ test('the Orchard receives the saved Foundry keyholder through the co-op handoff
     assert.equal(started.data.priorOutcome,priorOutcome==='lantern'?undefined:priorOutcome);
   }
 });
+
+test('the Third Seal carries both chapter choices and ignores unrelated Foundry outcomes',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [holder,archiveIn] of [['court',6],['workers',5],['detachment',5]]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'third-seal',
+      priorOutcome:'orchard-held',foundryKeyholder:holder,botCount:1});
+    assert.equal(room.episode,'third-seal');
+    assert.equal(room.priorOutcome,'orchard-held');
+    assert.equal(room.foundryKeyholder,holder==='detachment'?undefined:holder);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.archiveIn,archiveIn);
+  }
+});

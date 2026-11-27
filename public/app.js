@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -17,6 +17,7 @@ function saveCoopMemory(){
   if(game.chapterOutcome){
     memory.outcomes??={};
     memory.outcomes[game.episode??'watch']=game.chapterOutcome;
+    if(game.episode==='orchard') memory.orchardFoundryKeyholder=game.priorOutcome??null;
   }
   if(sessionStorage.emberveilRememberRoom===room&&mine.leader&&mine.unlocked){
     memory.leaders??={};
@@ -288,7 +289,50 @@ function orchardPanel(active){
     <small>Tend once per turn. The creature you choose cannot attack or block until it readies.</small></section>`;
 }
 
+function archivePanel(active){
+  const {story,difficulty,priorOutcome,foundryKeyholder}=game;
+  const leads={
+    'orchard-held':'A family from the shelter beds recognizes the receipt. Their witness is already on the road.',
+    detachment:'The road is quiet after the last Sentinel fell. Sylva sends the receipt with a runner.',
+    lost:'A family that fled the Orchard hid the receipt beneath a folded blanket.'
+  };
+  const help={
+    workers:'Foundry workers send a reading lamp. Your first ledger step costs 1 less mana.',
+    court:'The court has ordered the archivist to keep the side door open for one extra Watch turn.'
+  };
+  const endings={
+    ledger:['The Seal in Ink','Neri sets the copy beside the receipt. The three seals match. The clerk leaves a blank line for the house the court refused to name.'],
+    witness:['A Voice at the Hearing','The witness places a hand on the rail and names the people who stood under the third seal. The clerk asks how to spell the first name.'],
+    detachment:['The Watch Leaves the Archive','The Watch falls back. Neri has the receipt, and the court will have to hear her. The matching record has yet to be found.'],
+    lost:['The Side Door Shuts','The Watch locks the archive. Neri folds the receipt and walks back to the briars with the family that kept it.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const {title,intro}=lore['third-seal'];
+  const mine=game.players[game.seat];
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const guard=active&&ready.length?`<label for="archive-guard">Creature to escort the evidence</label>
+    <select id="archive-guard">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:'';
+  const closed=story?.archiveIn===0;
+  const bell=story&&story.route!=='witness'?`<p><strong>${closed?'The archive is closed.':story.archiveIn===1?'The bell rings on the next Watch turn.':`The bell rings in ${story.archiveIn} Watch turns.`}</strong>
+    ${story.incompleteLedger?'The unfinished copy was left inside. The witness can still reach the hearing.':''}</p>`:'';
+  const routes=Object.entries(archiveRoutes).filter(([route])=>!story?.route||story.route===route);
+  const actions=routes.map(([route,info])=>{
+    const cost=archiveCost(route,game);
+    const marks=story?.route===route?story.marks:route==='witness'?witnessLead(game):0;
+    const locked=route==='ledger'&&closed;
+    const available=active&&ready.length&&story.channelTurn!==game.round&&mine.mana>=cost&&!locked;
+    return `<p><strong>${info.name}</strong> · ${marks} / ${routeGoal(info,difficulty)} steps${locked?' · Archive closed':''}</p>
+      ${story?`<button class="outline" data-action="present-evidence" data-route="${route}" ${available?'':'disabled'}>${info.name} · ${cost} mana</button>`:''}`;
+  }).join('');
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2><p>${intro} ${leads[priorOutcome]??''}</p>
+    ${help[foundryKeyholder]?`<p>${help[foundryKeyholder]}</p>`:''}
+    <p>Bring one kind of evidence to the hearing or defeat the Sentinels. The first step commits the party. If the bell rings before the ledger is copied, you can still bring a witness.</p>
+    ${bell}${guard}${actions}<small>Advance once per turn. The chosen creature cannot attack or block until it readies.</small></section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='third-seal') return archivePanel(active);
   if(game.episode==='orchard') return orchardPanel(active);
   if(game.episode==='foundry') return foundryPanel(active);
   if(Object.hasOwn(routesByEpisode,game.episode)) return escortPanel(active);
@@ -389,7 +433,7 @@ function renderBattlefield(markup){
   if(arena.contains(focus)){
     if(focus.id) focusSelector='#'+CSS.escape(focus.id);
     else{
-      const keys=['id','zone','action','panel','opponent','branch','gate','choice','job','holder','plot','scroll'].filter(key=>focus.dataset[key]!==undefined);
+      const keys=['id','zone','action','panel','opponent','branch','gate','choice','job','holder','plot','route','scroll'].filter(key=>focus.dataset[key]!==undefined);
       focusSelector=keys.map(key=>`[data-${key}="${CSS.escape(focus.dataset[key])}"]`).join('');
     }
   }
@@ -480,19 +524,20 @@ function render(){
   const result=outcome?`<section class="field"><h2>${escape(outcome)}</h2>${storyPanel()}
     <div class="result-actions"><a class="quiet" href="/?watch=1&amp;room=${room}">Share final battlefield</a>
     ${chapterActions}</div></section>`:'';
+  const archiveWarning=game.episode==='third-seal'&&game.story?.archiveIn===1&&game.story.route!=='witness';
   const orchardWarning=game.episode==='orchard'&&game.story?.patrolIn===1&&!game.story.sheltered[game.story.patrol];
   const foundryWarning=game.episode==='foundry'&&game.story?.heatIn===1&&!game.story.vented;
   const panels=[
     {id:'combat',label:'Combat',html:combatPanel},
     {id:'choice',label:'Card choice',html:choicePanel},
     {id:'tree',label:`Tree · ${mine.growth}`,html:treePanel(mine,active)},
-    {id:'story',label:orchardWarning?'Story · Sweep next':foundryWarning?'Story · Blast next':game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
+    {id:'story',label:archiveWarning?'Story · Bell next':orchardWarning?'Story · Sweep next':foundryWarning?'Story · Blast next':game.story?.pulseIn&&game.story.marks<wardMarks?`Story · Pulse in ${game.story.pulseIn}`:'Story',html:storyPanel(active)},
     {id:'table',label:game.truce?.to===game.seat&&!game.truce.accepted?'Truce offer':'Table',html:table},
     {id:'result',label:'Result',html:result}
   ].filter(panel=>panel.html);
   const panel=panels.find(panel=>panel.id===openPanel);
   const tabs=panels.map(item=>`<button class="panel-toggle" data-action="panel" data-panel="${item.id}" aria-expanded="${panel===item}"
-    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'||item.id==='story'&&(foundryWarning||orchardWarning)?'data-attention':''}>${item.label}</button>`).join('');
+    ${['combat','choice','result'].includes(item.id)||item.label==='Truce offer'||item.id==='story'&&(foundryWarning||orchardWarning||archiveWarning)?'data-attention':''}>${item.label}</button>`).join('');
   const hand=mine.hand.map(unit=>{
     const reaction=cards[unit.kind].reaction;
     const early=active&&!game.attacked&&mine.board.length&&earlyReaction(mine,unit.kind);
@@ -556,10 +601,11 @@ async function enterFromForm(event,create){
     const episode=$('host-episode').value;
     const previous=previousChapter(episode);
     const priorOutcome=memory.outcomes?.[previous]??(previous==='watch'?memory.watch:undefined);
+    const foundryKeyholder=Object.hasOwn(memory,'orchardFoundryKeyholder')?memory.orchardFoundryKeyholder:memory.outcomes?.foundry;
     const remember=$(create?'host-remember':'guest-remember').checked;
     const state=await api(code,{type:create?'create':'join',mode:$('host-mode').value,botCount:Number($('host-bots').value),
       chapter:$('host-chapter').checked,episode,difficulty:$('watch-difficulty').value,
-      priorOutcome,resume:remember?memory.leaders?.[leader]:undefined,
+      priorOutcome,foundryKeyholder,resume:remember?memory.leaders?.[leader]:undefined,
       ranked:$('host-mode').value==='ffa'&&$('ranked').checked,privateTable:$('private-table').checked,leaderDamage:$('leader-damage').checked,turnSeconds:Number($('host-timer').value),
       name:$(create?'host-name':'guest-name').value,leader});
     if(remember&&state.mode==='coop') sessionStorage.emberveilRememberRoom=state.code;
@@ -619,6 +665,7 @@ arena.onclick=async event=>{
     const remember=sessionStorage.emberveilRememberRoom===room;
     try{
       const state=await api('CREATE',{type:'create',mode:'coop',chapter:true,episode:button.dataset.episode,leader:mine.leader,name:mine.name,
+        foundryKeyholder:action==='next-chapter'&&game.episode==='orchard'?game.priorOutcome:game.foundryKeyholder,
         botCount:game.botCount,difficulty:game.difficulty,turnSeconds:game.turnSeconds,priorOutcome:action==='next-chapter'?game.chapterOutcome:game.priorOutcome,
         resume:remember?readMemory().leaders?.[mine.leader]:undefined});
       if(remember) sessionStorage.emberveilRememberRoom=state.code;
@@ -630,6 +677,7 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='present-evidence') await move({type:action,route:button.dataset.route,id:$('archive-guard')?.value});
   if(action==='tend') await move({type:action,plot:button.dataset.plot,id:$('orchard-tender')?.value});
   if(action==='foundry') await move({type:action,job:button.dataset.job,holder:button.dataset.holder,id:$('foundry-worker')?.value});
   if(action==='escort') await move({type:action,route:button.dataset.route,id:$('escort-guard')?.value});
