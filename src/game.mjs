@@ -197,6 +197,7 @@ export const lore={
   'gate-charter':{title:'The Gate Charter',intro:'Neri unpins the old order from the gatehouse wall. Sera sets down a charter that asks for a door no house can close alone. The Watch is coming up the road.'},
   'shared-keys':{title:'The Shared Keys',intro:'Orrun puts the two keys down beside the gate. The bars are still in their sockets. Across the road, a voice reads the new order aloud.'},
   'open-road':{title:'The Open Road',intro:'Tala walks the road beyond the gate. The wagons wait where the stones end. Farther out, the Watch has set a line across the track.'},
+  'reed-ford':{title:'The Reed Ford',intro:'Iskar stands where the road goes into the river. He knows where the old stones are. The Watch is coming up the far bank.'},
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
@@ -218,7 +219,8 @@ export const chapters={
   'first-petition':{title:lore['first-petition'].title,revision:1,next:'gate-charter',outcomes:['petition-signed','copies-through','detachment','lost']},
   'gate-charter':{title:lore['gate-charter'].title,revision:1,next:'shared-keys',outcomes:['charter-ratified','copies-posted','detachment','lost']},
   'shared-keys':{title:lore['shared-keys'].title,revision:1,next:'open-road',outcomes:['bars-lifted','lanes-rallied','detachment','lost']},
-  'open-road':{title:lore['open-road'].title,revision:1,outcomes:['wagons-through','crowd-through','detachment','lost']}
+  'open-road':{title:lore['open-road'].title,revision:1,next:'reed-ford',outcomes:['wagons-through','crowd-through','detachment','lost']},
+  'reed-ford':{title:lore['reed-ford'].title,revision:1,outcomes:['ford-bridged','shallows-crossed','detachment','lost']}
 };
 export const escortRoutes={
   witnesses:{name:'Escort the witnesses',cost:2,steps:4,damage:1,pressure:'1 damage to every living ally'},
@@ -309,6 +311,12 @@ export const openRoadRoute=outcome=>outcome==='lanes-rallied'?'crowd':'wagons';
 export const openRoadGoal=difficulty=>difficulty==='veteran'?4:3;
 export const wagonCost=2;
 
+export const reedFordRoute=outcome=>outcome==='crowd-through'?'shallows':'causeway';
+export const reedFordGoal=(route,difficulty)=>route==='causeway'?(difficulty==='veteran'?7:5):(difficulty==='veteran'?4:3);
+export const fordPlanks=kind=>cards[kind].power?2:1;
+export const shallowsCost=1;
+export const shallowsOpen=game=>game.players.some(player=>player.bot&&!player.eliminated&&player.board.some(unit=>unit.exhausted));
+
 export const objectiveCost=2;
 export const objectiveGoal=3;
 export const leaderDamageGoal=12;
@@ -384,7 +392,7 @@ function endTurn(game){
 
 export const hasStarted = game => game.started ?? game.players.length >= 2;
 
-const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition','gate-charter','shared-keys','open-road'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
+const hasStoryEnding=episode=>['foundry','orchard','third-seal','ash-register','doors-at-dawn','lower-stair','landing-bell','upper-door','common-table','first-petition','gate-charter','shared-keys','open-road','reed-ford'].includes(episode)||Object.hasOwn(routesByEpisode,episode);
 
 function eliminate(game, seat, message){
   game.players[seat].eliminated=true;
@@ -904,6 +912,36 @@ function advanceRoadCrowd(game,combat){
   }
 }
 
+function workAtReedFord(game,seat,data){
+  const {story}=game;
+  const p=game.players[seat];
+  const laying=data.type==='lay-planks';
+  if(game.episode!=='reed-ford'||story?.route!==(laying?'causeway':'shallows')||p.bot){
+    throw Error(laying?'The causeway is unavailable.':'The shallows are unavailable.');
+  }
+  if(story.channelTurn===game.round) throw Error('You can work at the ford once per turn.');
+  const goal=reedFordGoal(story.route,game.difficulty);
+  let progress=1;
+  if(laying){
+    const index=p.hand.findIndex(card=>card.id===data.id);
+    if(index<0) throw Error('Choose a card from your hand.');
+    const [card]=p.hand.splice(index,1);
+    p.deck.push(card);
+    progress=Math.min(fordPlanks(card.kind),goal-story.marks);
+    game.last=p.name+' laid '+(progress===1?'a plank.':'two planks.');
+  }else{
+    if(!shallowsOpen(game)) throw Error('Wait for an exhausted Sentinel creature.');
+    assignChapterGuard(p,data.id,shallowsCost);
+    game.last=p.name+' guided a group through the shallows.';
+  }
+  story.channelTurn=game.round;
+  story.marks+=progress;
+  if(story.marks===goal){
+    story.ending=laying?'ford-bridged':'shallows-crossed';
+    game.winner=seat;
+  }
+}
+
 function beginTurn(game){
   const p=game.players[game.active];
   advanceSharedKeys(game,p);
@@ -1228,6 +1266,7 @@ export function act(game, seat, data){
     if(game.mode==='teams'&&game.teamsPolitics) game.objective={progress:[0,0],claimed:null,lastTurn:0};
     if(game.chapter){
       game.story={marks:0,sentinelsFallen:0,channelTurn:0};
+      if(game.episode==='reed-ford') game.story.route=reedFordRoute(game.priorOutcome);
       if(game.episode==='open-road') game.story.route=openRoadRoute(game.priorOutcome);
       if(game.episode==='shared-keys'){
         game.story.route=sharedKeysRoute(game.priorOutcome);
@@ -1342,6 +1381,10 @@ export function act(game, seat, data){
         if(member.team===p.team&&!member.eliminated) member.keyManaBonus=true;
       }
     }
+    return;
+  }
+  if(data.type==='lay-planks'||data.type==='guide-shallows'){
+    workAtReedFord(game,seat,data);
     return;
   }
   if(data.type==='send-wagon'){

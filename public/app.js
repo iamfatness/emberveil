@@ -1,4 +1,4 @@
-import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn,openRoadRoute,openRoadGoal,wagonCost} from '/game.mjs';
+import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn,openRoadRoute,openRoadGoal,wagonCost,reedFordRoute,reedFordGoal,fordPlanks,shallowsCost,shallowsOpen} from '/game.mjs';
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
@@ -703,7 +703,55 @@ function openRoadPanel(active){
     </section>`;
 }
 
+function reedFordPanel(active){
+  const {story,difficulty,priorOutcome}=game;
+  const {title,intro}=lore['reed-ford'];
+  const endings={
+    'ford-bridged':['The Causeway Holds','The last wagon rattles over the planks. On the far bank, Iskar takes a stone from the water and sets it where the next driver can see it.'],
+    'shallows-crossed':['Through the Reeds','The last group comes up out of the reeds. Someone counts the people on the bank while the others wring out their coats.'],
+    detachment:['The Far Bank Is Quiet','The Watch leaves the bank. Iskar walks out until the water reaches his knees and calls back where the stones are.'],
+    lost:['The Ford Is Taken','The Watch stands in the shallows. Iskar gathers the people on the road and leads them back from the water.']
+  };
+  const ending=endings[story?.ending];
+  if(ending) return `<section class="field story" aria-label="Match story"><h2>${ending[0]}</h2><p>${ending[1]}</p></section>`;
+  const route=story?.route??reedFordRoute(priorOutcome);
+  const goal=reedFordGoal(route,difficulty);
+  const marks=story?.marks??0;
+  const label=route==='causeway'?'Planks laid':'Groups across';
+  const progress=`<div class="ward-progress"><progress value="${marks}" max="${goal}" aria-label="${label}"></progress><strong>${label} · ${marks} / ${goal}</strong></div>`;
+  const mine=game.players[game.seat];
+  const canWork=active&&story.channelTurn!==game.round;
+  if(route==='causeway'){
+    const canLay=canWork&&mine.hand.length;
+    return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+      <p>${intro} ${priorOutcome==='wagons-through'?'The wheels need a causeway. The drivers start laying boards on the stones.':'Iskar marks where the first planks should go.'}</p>
+      <p>Once per turn, put a card from your hand on the bottom of your deck. A creature card lays two planks. A spell lays one. Lay ${goal} planks or defeat the Sentinels to win.</p>
+      ${progress}
+      ${story?`${canLay?`<label for="ford-supply">Card to put on the bottom of your deck</label>
+        <select id="ford-supply">${mine.hand.map(unit=>{
+          const planks=Math.min(fordPlanks(unit.kind),goal-marks);
+          return `<option value="${unit.id}">${cards[unit.kind].name} · ${planks} ${planks===1?'plank':'planks'}</option>`;
+        }).join('')}</select>`:''}
+        <button class="outline" data-action="lay-planks" ${canLay?'':'disabled'}>Lay planks</button>`:''}
+      </section>`;
+  }
+
+  const open=shallowsOpen(game);
+  const ready=mine.board.filter(unit=>unit.ready&&!unit.exhausted);
+  const canGuide=canWork&&open&&ready.length&&mine.mana>=shallowsCost;
+  return `<section class="field story" aria-label="Match story"><h2>${title}</h2>
+    <p>${intro} The people from the road are on foot. They can cross through the reeds when the Watch leaves an opening.</p>
+    <p>While a Sentinel creature is exhausted, spend ${shallowsCost} mana and exhaust a ready creature to guide a group. Guide once per turn. Get ${goal} groups across or defeat the Sentinels to win.</p>
+    ${story?`<p><strong>${open?'The shallows are open.':'Waiting for an exhausted Sentinel creature.'}</strong></p>`:''}
+    ${progress}
+    ${story?`${canGuide?`<label for="ford-guide">Creature to guide a group</label>
+      <select id="ford-guide">${ready.map((unit,i)=>`<option value="${unit.id}">${i+1}. ${cards[unit.kind].name} · ${unitPower(mine,unit)} / ${unit.hp}</option>`).join('')}</select>`:''}
+      <button class="outline" data-action="guide-shallows" ${canGuide?'':'disabled'}>Guide a group · ${shallowsCost} mana</button>`:''}
+    </section>`;
+}
+
 function storyPanel(active=false){
+  if(game.episode==='reed-ford') return reedFordPanel(active);
   if(game.episode==='open-road') return openRoadPanel(active);
   if(game.episode==='shared-keys') return sharedKeysPanel(active);
   if(game.episode==='gate-charter') return gateCharterPanel(active);
@@ -1074,6 +1122,8 @@ arena.onclick=async event=>{
     finally{busy=false;render();}
     return;
   }
+  if(action==='lay-planks') await move({type:action,id:$('ford-supply')?.value});
+  if(action==='guide-shallows') await move({type:action,id:$('ford-guide')?.value});
   if(action==='send-wagon') await move({type:action,id:$('wagon-escort')?.value});
   if(action==='assign-key') await move({type:action,id:$('shared-key-bearer')?.value});
   if(action==='call-hearing') await move({type:action});

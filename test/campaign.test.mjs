@@ -1332,3 +1332,80 @@ test('both Open Road routes retain the ordinary battle endings',()=>{
     assert.equal(view(lost,0,0).chapterOutcome,'lost');
   }
 });
+
+test('the wagon causeway puts cards on the bottom of the deck and counts planks at different rates',()=>{
+  const game=chapter('standard','reed-ford','wagons-through');
+  const ally=game.players[0];
+  const creature={kind:'guard',id:'beam'};
+  const spell={kind:'veil',id:'rope'};
+  const last={kind:'wolf',id:'last'};
+  const lay=id=>act(game,0,{type:'lay-planks',id});
+  const cycle=()=>{endTurn(game);endTurn(game);};
+  ally.hand=[creature,spell,last];
+  const deck=ally.deck.slice();
+  ally.mana=0;
+  assert.equal(game.story.route,'causeway');
+  assert.throws(()=>lay('unknown'),/choose a card from your hand/i);
+  lay(creature.id);
+  assert.equal(ally.mana,0);
+  assert.deepEqual(ally.hand,[spell,last]);
+  assert.deepEqual(ally.deck,[...deck,creature]);
+  assert.equal(game.story.marks,2);
+  assert.throws(()=>lay(spell.id),/once per turn/i);
+  cycle();
+  lay(spell.id);
+  assert.deepEqual(ally.deck.at(-1),spell);
+  assert.equal(game.story.marks,3);
+  cycle();
+  lay(last.id);
+  assert.deepEqual(ally.deck.at(-1),last);
+  assert.equal(game.story.marks,5);
+  assert.equal(view(game,-1,0).chapterOutcome,'ford-bridged');
+});
+
+test('the shallows require a surviving exhausted Sentinel creature to guide the crowd',()=>{
+  const game=chapter('veteran','reed-ford','crowd-through');
+  const [ally,sentinel]=game.players;
+  const guide={type:'guide-shallows',id:'guide'};
+  const blocker={kind:'sprite',id:'blocker',hp:1,ready:true};
+  const flank={...player('Second Sentinel',null,'orrun'),bot:true,team:1,board:[{kind:'wolf',id:'flank',hp:2,exhausted:true}]};
+  game.players.push(flank);
+  act(game,2,{type:'concede'});
+  ally.board=[{kind:'guard',id:'guide',hp:3,ready:true},blocker];
+  sentinel.board=[{kind:'guard',id:'watch',hp:3,ready:false}];
+  ally.hand=[];
+  assert.equal(game.story.route,'shallows');
+  assert.throws(()=>act(game,0,guide),/exhausted Sentinel creature/i);
+  assert.throws(()=>act(game,0,{type:'lay-planks'}),/unavailable/i);
+
+  for(let groups=1;groups<=4;groups++){
+    endTurn(game);
+    act(game,1,{type:'attack-batch',opponent:0,ids:['watch']});
+    if(game.combat?.phase==='block') act(game,0,{type:'blocks',blocks:[{attacker:'watch',blocker:'blocker'}]});
+    assert.equal(sentinel.board[0].exhausted,true);
+    if(groups===1) assert.equal(ally.board.some(unit=>unit.id==='blocker'),false);
+    endTurn(game);
+    ally.hand=[];
+    const mana=ally.mana;
+    act(game,0,guide);
+    assert.equal(ally.mana,mana-1);
+    assert.equal(ally.board[0].exhausted,true);
+    assert.equal(game.story.marks,groups);
+    if(groups<4){
+      assert.equal(game.winner,null);
+      assert.throws(()=>act(game,0,guide),/once per turn/i);
+    }
+  }
+  assert.equal(view(game,-1,0).chapterOutcome,'shallows-crossed');
+});
+
+test('both Reed Ford paths keep the ordinary battle endings',()=>{
+  for(const outcome of ['wagons-through','crowd-through']){
+    const won=chapter('standard','reed-ford',outcome);
+    act(won,1,{type:'concede'});
+    assert.equal(view(won,0,0).chapterOutcome,'detachment');
+    const lost=chapter('standard','reed-ford',outcome);
+    act(lost,0,{type:'concede'});
+    assert.equal(view(lost,0,0).chapterOutcome,'lost');
+  }
+});

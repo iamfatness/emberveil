@@ -348,3 +348,19 @@ test('The Open Road chooses its route from the Shared Keys ending',async()=>{
     assert.equal(started.data.story.marks,0);
   }
 });
+
+test('The Reed Ford chooses its route from the Open Road ending',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  for(const [priorOutcome,route] of [
+    ['wagons-through','causeway'],['crowd-through','shallows'],['detachment','causeway'],['lanes-rallied','causeway'],[undefined,'causeway']
+  ]){
+    const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'reed-ford',
+      priorOutcome,botCount:1});
+    assert.equal(room.episode,'reed-ford');
+    assert.equal(room.priorOutcome,priorOutcome==='lanes-rallied'?undefined:priorOutcome);
+    const started=await call(room.code,host,{type:'start',revision:room.revision});
+    assert.equal(started.status,200);
+    assert.equal(started.data.story.route,route);
+    assert.equal(started.data.story.marks,0);
+  }
+});
