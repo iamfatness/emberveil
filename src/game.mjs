@@ -157,6 +157,7 @@ export const rankedLeaders=['tala','vael','neri','sylva','orrun','iskar','sera',
 export function player(name,key,leader='tala',resume,ranked=false){
   const branch=trees[leader]?.branches.find(branch=>branch.id===resume?.tree);
   const valid=branch&&Number.isInteger(resume.unlocked)&&resume.unlocked>0&&resume.unlocked<=branch.nodes.length;
+  const hasSavedGrowth=(valid||resume?.tree===null&&resume.unlocked===0)&&Number.isInteger(resume.growth);
   const list=leader?leaders[leader].deck:{scout:4,guard:4,wolf:4,knight:4,drake:4,spark:4,ward:4};
   const deckList=leader==='sylva'&&!ranked?{...list,briar:list.briar-2,'briar-shelter':2}:list;
   const deck=Object.entries(deckList).flatMap(([kind,count])=>Array.from({length:count},()=>({kind,id:crypto.randomUUID()})));
@@ -164,7 +165,7 @@ export function player(name,key,leader='tala',resume,ranked=false){
     const j=crypto.getRandomValues(new Uint32Array(1))[0]%(i+1);
     [deck[i],deck[j]]=[deck[j],deck[i]];
   }
-  return {name,key,leader,leaderCasts:0,life:20,mana:0,max:0,board:[],hand:deck.splice(0,5),deck,growth:valid&&Number.isInteger(resume.growth)?Math.max(0,Math.min(6,resume.growth)):0,tree:valid?branch.id:null,unlocked:valid?resume.unlocked:0,lastPlayedCreature:false};
+  return {name,key,leader,leaderCasts:0,life:20,mana:0,max:0,board:[],hand:deck.splice(0,5),deck,growth:hasSavedGrowth?Math.max(0,Math.min(6,resume.growth)):0,tree:valid?branch.id:null,unlocked:valid?resume.unlocked:0,lastPlayedCreature:false};
 }
 
 export const MAX_PLAYERS = 6;
@@ -271,6 +272,19 @@ export const routesByEpisode={'missing-names':escortRoutes,tide:harborRoutes,'op
 export const routeGoal=(route,difficulty)=>route.steps+(difficulty==='veteran'?1:0);
 
 export const previousChapter=episode=>episode&&Object.keys(chapters).find(id=>chapters[id].next===episode);
+
+export function campaignProgress(outcomes){
+  let episode='watch';
+  const recorded=[];
+  while(episode){
+    const chapter=chapters[episode];
+    const outcome=outcomes?.[episode];
+    if(!chapter.outcomes.includes(outcome)||episode!=='watch'&&['lost','gates-fell'].includes(outcome)) break;
+    recorded.push(episode);
+    episode=chapter.next;
+  }
+  return {episode,recorded};
+}
 
 export const foundryRules={
   repairCost:2,

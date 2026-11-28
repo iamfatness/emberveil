@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { act, ashGateCarryover, expireCombat, player, view } from '../src/game.mjs';
+import { act, ashGateCarryover, campaignProgress, chapters, expireCombat, player, view } from '../src/game.mjs';
 
 function chapter(difficulty, episode, priorOutcome, foundryKeyholder) {
   const game = {
@@ -16,6 +16,26 @@ function chapter(difficulty, episode, priorOutcome, foundryKeyholder) {
 function endTurn(game) {
   act(game, game.active, { type: 'end' });
 }
+
+test('campaign return follows the recorded sequence and preserves the Watch loss continuation', () => {
+  assert.deepEqual(campaignProgress(),{episode:'watch',recorded:[]});
+  assert.deepEqual(campaignProgress({watch:'vault-lost',accord:'gates-fell',foundry:'court'}),{
+    episode:'accord',recorded:['watch']
+  });
+  assert.deepEqual(campaignProgress({watch:'ward-restored',accord:'moon','missing-names':'unrecognized'}),{
+    episode:'missing-names',recorded:['watch','accord']
+  });
+  const complete=Object.fromEntries(Object.entries(chapters).map(([id,chapter])=>[id,chapter.outcomes[0]]));
+  assert.deepEqual(campaignProgress(complete),{episode:undefined,recorded:Object.keys(chapters)});
+});
+
+test('a returning leader can keep earned growth before choosing a path', () => {
+  const returning=player('Rescuer','test','tala',{tree:null,unlocked:0,growth:3});
+  assert.equal(returning.growth,3);
+  assert.equal(returning.tree,null);
+  assert.equal(returning.unlocked,0);
+  assert.equal(player('Rescuer','test','tala',{tree:'forge',unlocked:0,growth:3}).growth,0);
+});
 
 test('the standard Watch warns players four Sentinel turns before dealing two damage', () => {
   const game = chapter('standard');

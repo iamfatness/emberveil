@@ -1,23 +1,40 @@
 import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn,openRoadRoute,openRoadGoal,wagonCost,reedFordRoute,reedFordGoal,fordPlanks,shallowsCost,shallowsOpen,farBankRoute,farBankGoal,farBankUnloadMana,farBankShelterDamage,farBankManaUsed} from '/game.mjs';
 import {createPresentation} from '/presentation.mjs';
-import {ashGateApproaches,ashGateLegacies} from '/game.mjs';
+import {ashGateApproaches,ashGateLegacies,campaignProgress} from '/game.mjs';
 
 const $=id=>document.getElementById(id);
-const lobby=$('lobby'),arena=$('arena');
+const lobby=$('lobby'),arena=$('arena'),campaign=$('campaign');
 const presentation=createPresentation(arena,$('match-effects'));
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
 const query=new URL(location.href).searchParams;
 const requested=query.get('room')?.toUpperCase()||'';
 const watching=query.get('watch')==='1';
+const campaignHome='/?campaign=1';
+const visitingCampaign=query.get('campaign')==='1'&&!requested;
 const memoryKey='emberveilChronicle';
 function readMemory(){
-  try{return JSON.parse(localStorage.getItem(memoryKey))??{};}
+  try{
+    const memory=JSON.parse(localStorage.getItem(memoryKey));
+    return memory&&typeof memory==='object'&&!Array.isArray(memory)?memory:{};
+  }
   catch{return {};}
+}
+function writeMemory(memory){
+  try{localStorage.setItem(memoryKey,JSON.stringify(memory));}catch{}
+}
+function chapterMemory(memory,episode){
+  const previous=previousChapter(episode);
+  return {
+    priorOutcome:memory.outcomes?.[previous]??(previous==='watch'?memory.watch:undefined),
+    foundryKeyholder:Object.hasOwn(memory,'orchardFoundryKeyholder')?memory.orchardFoundryKeyholder:memory.outcomes?.foundry,
+    ashGateLegacy:episode==='accord'?memory.ashGateLegacy:undefined
+  };
 }
 function saveCoopMemory(){
   if(watching||game.mode!=='coop'||game.winner===null) return;
   const memory=readMemory();
   const mine=game.players[game.seat];
+  const remember=sessionStorage.emberveilRememberRoom===room;
   if(game.chapterOutcome){
     memory.outcomes??={};
     memory.outcomes[game.episode??'watch']=game.chapterOutcome;
@@ -26,13 +43,14 @@ function saveCoopMemory(){
       else delete memory.ashGateLegacy;
     }
     if(game.episode==='orchard') memory.orchardFoundryKeyholder=game.priorOutcome??null;
+    memory.campaign={leader:mine.leader,name:mine.name,remember,difficulty:game.difficulty,botCount:game.botCount};
   }
-  if(sessionStorage.emberveilRememberRoom===room&&mine.leader&&mine.unlocked){
+  if(remember&&mine.leader&&(mine.unlocked||mine.growth)){
     memory.leaders??={};
     const saved=memory.leaders[mine.leader];
     if(!saved||mine.unlocked>saved.unlocked||mine.unlocked===saved.unlocked&&mine.growth>=saved.growth) memory.leaders[mine.leader]={tree:mine.tree,unlocked:mine.unlocked,growth:mine.growth};
   }
-  try{localStorage.setItem(memoryKey,JSON.stringify(memory));}catch{}
+  writeMemory(memory);
 }
 $('host-chapter').onchange=()=>{$('chapter-options').hidden=!$('host-chapter').checked;};
 let room='',game,selected,error='',busy=false,refreshing=false;
@@ -52,21 +70,14 @@ function tableOptions(){
 }
 $('host-mode').onchange=tableOptions;
 $('ranked').onchange=tableOptions;
-$('begin-campaign').onclick=()=>{
-  $('host-mode').value='coop';
-  $('host-episode').value='watch';
-  $('host-chapter').checked=true;
-  $('host-chapter').onchange();
-  tableOptions();
-  $('host-name').focus();
-};
 const teamName=(mode,team)=>mode==='coop'?(team===1?'Sentinels':'Adventurers'):(team===1?'Moon team':'Sun team');
 const sameSide=(a,b)=>game.mode&&game.mode!=='ffa'&&a.team===b.team;
 $('guest-code').value=requested;
 $('rules').onclick=()=>$('guide').showModal();
 
+const leaderOptions=Object.entries(leaders).map(([kind,leader])=>`<option value="${kind}">${cards[kind].name} · ${leader.style}</option>`).join('');
 for(const id of ['host-leader','guest-leader']){
-  $(id).innerHTML=Object.entries(leaders).map(([kind,leader])=>`<option value="${kind}">${cards[kind].name} · ${leader.style}</option>`).join('');
+  $(id).innerHTML=leaderOptions;
   const detail=document.createElement('div');
   detail.className='deck-detail';
   $(id).after(detail);
@@ -100,6 +111,86 @@ function escape(value){
 }
 function portrait(kind){
   return `<img src="/art/${cards[kind].art??kind}.webp" alt="" draggable="false">`;
+}
+
+function prepareCampaign(){
+  const memory=readMemory();
+  const {episode:next,recorded}=campaignProgress({watch:memory.watch,...memory.outcomes});
+  const tables=Boolean(requested)||query.get('tables')==='1';
+  $('duel-tables').hidden=!tables;
+  lobby.classList.toggle('table-lobby',tables);
+  if(tables) $('open-tables').hidden=true;
+  if(recorded.length||memory.campaign?.leader) $('begin-campaign').textContent='Continue the campaign';
+  if(!visitingCampaign) return;
+
+  lobby.hidden=true;
+  campaign.hidden=false;
+  const episode=next??recorded.at(-1);
+  const chapter=chapters[episode];
+  const profile=memory.campaign??{};
+  const recall=chapterMemory(memory,episode);
+  $('campaign-title').textContent=chapter.title;
+  $('campaign-intro').textContent=(episode==='watch'?lore.coop:lore[episode]).intro;
+  const memoryOfWatch=ashGateLegacies[recall.ashGateLegacy]?.accord;
+  const previous=previousChapter(episode);
+  const recallText=memoryOfWatch??(recall.priorOutcome&&previous?`Your party returns from ${chapters[previous].title}.`:null);
+  if(recallText){
+    $('campaign-recall').textContent=recallText;
+    $('campaign-recall').hidden=false;
+  }
+  $('campaign-chapters').innerHTML=Object.entries(chapters).map(([id,{title}])=>{
+    const status=recorded.includes(id)?'recorded':id===episode?'next':'ahead';
+    return `<li data-progress="${status}" ${id===episode?'aria-current="step"':''}>${title}${status==='recorded'?'<span class="sr">, recorded</span>':status==='next'?'<span class="sr">, current chapter</span>':''}</li>`;
+  }).join('');
+  const leaderInput=$('campaign-leader'),rememberInput=$('campaign-remember');
+  leaderInput.innerHTML=leaderOptions;
+  if(Object.hasOwn(leaders,profile.leader)) leaderInput.value=profile.leader;
+  if(typeof profile.name==='string') $('campaign-name').value=profile.name;
+  if(Object.hasOwn(watchDifficulties,profile.difficulty)) $('campaign-difficulty').value=profile.difficulty;
+  if([1,2,3].includes(profile.botCount)) $('campaign-bots').value=String(profile.botCount);
+  if(typeof profile.remember==='boolean') rememberInput.checked=profile.remember;
+  function showLeader(){
+    const leader=leaderInput.value;
+    const saved=memory.leaders?.[leader];
+    const branch=trees[leader].branches.find(item=>item.id===saved?.tree);
+    const unlocked=branch&&Number.isInteger(saved.unlocked)&&saved.unlocked>0&&saved.unlocked<=branch.nodes.length?branch.nodes.slice(0,saved.unlocked):[];
+    const growth=Number.isInteger(saved?.growth)?Math.max(0,Math.min(6,saved.growth)):0;
+    let progress='';
+    if(rememberInput.checked&&unlocked.length){
+      progress=`<p class="leader-progress"><strong>${branch.name}</strong> · ${unlocked.length} unlocked · ${growth} growth</p>
+        <ul>${unlocked.map(node=>`<li>${node.text}</li>`).join('')}</ul>`;
+    }else if(rememberInput.checked&&saved?.tree===null&&saved.unlocked===0&&growth){
+      progress=`<p class="leader-progress">${growth} saved growth · Choose a path in battle</p>`;
+    }
+    $('campaign-leader-detail').innerHTML=`<div class="campaign-leader-card">${portrait(leader)}<div>
+      <h2>${cards[leader].name}</h2><p>${lore.leaders[leader]}</p><p>${leaders[leader].capability}</p>${progress}</div></div>`;
+  }
+  leaderInput.onchange=showLeader;
+  rememberInput.onchange=showLeader;
+  showLeader();
+
+  const start=$('campaign-enter'),message=$('campaign-error');
+  start.textContent=next?(recorded.length?'Continue to '+chapter.title:'Approach the Ash Gate'):'Replay '+chapter.title;
+  $('campaign-journey').onsubmit=async event=>{
+    event.preventDefault();
+    start.disabled=true;
+    message.hidden=true;
+    const leader=leaderInput.value,remember=rememberInput.checked;
+    const name=$('campaign-name').value,difficulty=$('campaign-difficulty').value,botCount=Number($('campaign-bots').value);
+    try{
+      const saved=readMemory();
+      const state=await api('CREATE',{type:'create',mode:'coop',chapter:true,episode,leader,name,difficulty,botCount,
+        ...chapterMemory(saved,episode),resume:remember?saved.leaders?.[leader]:undefined});
+      const latest=readMemory();
+      latest.campaign={leader,name,remember,difficulty,botCount};
+      writeMemory(latest);
+      if(remember) sessionStorage.emberveilRememberRoom=state.code;
+      enter(state);
+    }catch(reason){
+      message.textContent=reason.message;
+      message.hidden=false;
+    }finally{start.disabled=false;}
+  };
 }
 function card(unit,zone,enabled,opponent){
   const info=cards[unit.kind];
@@ -959,6 +1050,7 @@ function renderBattlefield(markup){
 function render(){
   if(!game) return;
   lobby.hidden=true;
+  campaign.hidden=true;
   arena.hidden=false;
   arena.classList.toggle('match-live',game.started&&!watching);
   if(watching){renderSpectator();return;}
@@ -968,7 +1060,22 @@ function render(){
     const roster=game.players.map((p,i)=>`<li>${escape(p.name)}${game.mode&&game.mode!=='ffa'?' · '+teamName(game.mode,p.team):''}${p.leader?' · '+cards[p.leader].name:''}${i===0?' · Host':''}${i===game.seat?' · You':''}</li>`).join('');
     const requirements=game.mode==='teams'?'Team PvP starts with four or six players. Teams alternate by join order.':game.mode==='coop'?`This match includes ${game.botCount} Sentinel bots.`:'At least two players are needed.';
     const opening=game.rules>=3?`<h2>Opening hand</h2><div class="cards">${mine.hand.map(unit=>card(unit,'hand',false)).join('')}</div><button class="outline" data-action="redraw" ${mine.redrawn||busy?'disabled':''}>${mine.redrawn?'Opening hand redrawn':'Redraw opening hand once'}</button>`:'';
-    renderBattlefield(`<section class="panel waiting"><h1>${game.chapter?chapters[game.episode??'watch'].title:game.ranked?'Ranked FFA rules':modes[game.mode]||'Match lobby'}</h1><p>Share your invite link or room code with friends.</p><strong class="code">${room}</strong><div class="actions"><button class="outline" data-action="copy">Copy invite link</button>${game.seat===0&&!game.ashGateVotes?`<button class="gold" data-action="start" ${game.readyToStart&&!busy?'':'disabled'}>Start match</button>`:''}</div><h2>${game.players.length} of ${game.humanLimit||MAX_PLAYERS} player seats</h2><ol class="roster">${roster}</ol><p id="status" role="status">${escape(error||(game.seat!==0?'Waiting for the host to start.':!game.readyToStart||game.mode==='coop'?requirements:''))}</p>${game.ashGateVotes?ashGateScene():storyPanel()}${opening}<a href="/">Back to lobby</a></section>`);
+    const invite=`<strong class="code">${room}</strong><button class="outline" data-action="copy">Copy invite link</button>
+      <ol class="roster" aria-label="Players in the room">${roster}</ol>`;
+    const start=game.seat===0&&!game.ashGateVotes?`<button class="gold" data-action="start" ${game.readyToStart&&!busy?'':'disabled'}>${game.chapter?'Enter the chapter':'Start match'}</button>`:'';
+    const status=`<p id="status" role="status">${escape(error||(game.seat!==0?'Waiting for the host to start.':!game.readyToStart||game.mode==='coop'?requirements:''))}</p>`;
+    if(game.chapter){
+      renderBattlefield(`<section class="panel waiting campaign-waiting"><h1>${chapters[game.episode??'watch'].title}</h1>
+        ${game.ashGateVotes?ashGateScene():storyPanel()}${start}${status}
+        <details data-dialogue="invite" class="campaign-invite"><summary>Invite companions · ${game.players.length} / ${game.humanLimit||MAX_PLAYERS} seats</summary>${invite}</details>
+        ${opening}<a href="${campaignHome}">Back to the campaign</a></section>`);
+    }else{
+      renderBattlefield(`<section class="panel waiting"><h1>${game.ranked?'Ranked FFA rules':modes[game.mode]||'Match lobby'}</h1>
+        <p>Share your invite link or room code with friends.</p><strong class="code">${room}</strong>
+        <div class="actions"><button class="outline" data-action="copy">Copy invite link</button>${start}</div>
+        <h2>${game.players.length} of ${game.humanLimit||MAX_PLAYERS} player seats</h2><ol class="roster">${roster}</ol>
+        ${status}${storyPanel()}${opening}<a href="/?tables=1">Back to the tables</a></section>`);
+    }
     return;
   }
   const mine=game.players[game.seat];
@@ -1077,7 +1184,7 @@ function render(){
   renderBattlefield(`<div class="match-shell" data-scene="${scene}">
     <div class="match-header">
       <div class="match-status"><h1 id="status" role="status">${escape(status)}</h1><p title="${escape(game.last??'')}">${game.last&&!error?escape(game.last):''}</p></div>
-      ${primaryClock}<button class="quiet" data-action="${outcome||mine.eliminated?'leave':'concede'}" ${busy?'disabled':''}>${outcome||mine.eliminated?'Lobby':'Concede'}</button>
+      ${primaryClock}<button class="quiet" data-action="${outcome||mine.eliminated?'leave':'concede'}" ${busy?'disabled':''}>${outcome||mine.eliminated?(game.chapter?'Campaign':'Lobby'):'Concede'}</button>
     </div>
     <nav class="match-seats" aria-label="Choose a battlefield">${seats}</nav>
     <nav class="match-tools" aria-label="Match panels">${tabs}</nav>
@@ -1131,13 +1238,10 @@ async function enterFromForm(event,create){
     const memory=readMemory();
     const leader=$(create?'host-leader':'guest-leader').value;
     const episode=$('host-episode').value;
-    const previous=previousChapter(episode);
-    const priorOutcome=memory.outcomes?.[previous]??(previous==='watch'?memory.watch:undefined);
-    const foundryKeyholder=Object.hasOwn(memory,'orchardFoundryKeyholder')?memory.orchardFoundryKeyholder:memory.outcomes?.foundry;
     const remember=$(create?'host-remember':'guest-remember').checked;
     const state=await api(code,{type:create?'create':'join',mode:$('host-mode').value,botCount:Number($('host-bots').value),
       chapter:$('host-chapter').checked,episode,difficulty:$('watch-difficulty').value,
-      priorOutcome,foundryKeyholder,ashGateLegacy:episode==='accord'?memory.ashGateLegacy:undefined,resume:remember?memory.leaders?.[leader]:undefined,
+      ...chapterMemory(memory,episode),resume:remember?memory.leaders?.[leader]:undefined,
       ranked:$('host-mode').value==='ffa'&&$('ranked').checked,privateTable:$('private-table').checked,leaderDamage:$('leader-damage').checked,turnSeconds:Number($('host-timer').value),
       name:$(create?'host-name':'guest-name').value,leader});
     if(remember&&state.mode==='coop') sessionStorage.emberveilRememberRoom=state.code;
@@ -1184,7 +1288,7 @@ arena.onclick=async event=>{
     try{await navigator.clipboard.writeText(location.href);$('status').textContent='Invite link copied.';}
     catch{$('status').textContent='Share the URL from your address bar.';}
   }
-  if(action==='leave') location.href='/';
+  if(action==='leave') location.href=game.chapter?campaignHome:'/?tables=1';
   if(action==='choose-record'){
     attackIds=[];
     selected={type:'read-record',playerOnly:true};
@@ -1333,6 +1437,7 @@ setInterval(async ()=>{
     }
   }finally{refreshing=false;}
 },1200);
+prepareCampaign();
 if(/^[A-F0-9]{8}$/.test(requested)){
   api(requested).then(state=>{if(!room) enter(state);}).catch(reason=>{if(watching) $('lobby-error').textContent=reason.message;});
 }
