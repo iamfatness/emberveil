@@ -393,6 +393,46 @@ body:has(#arena.match-live) {
 }
 
 #match-effects { position: fixed; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+#match-cue {
+  position: fixed;
+  z-index: 3;
+  inset-block-start: 5.4rem;
+  inset-inline-end: max(1rem, env(safe-area-inset-right));
+  max-inline-size: min(22rem, calc(100% - 2rem));
+  padding: .55rem .9rem;
+  border: 1px solid #564243;
+  border-inline-start: 3px solid var(--cue-color, #eed199);
+  border-radius: .25rem;
+  background: #171218f5;
+  color: #fff0d5;
+  box-shadow: 0 .35rem 1.2rem #0a070b99;
+  pointer-events: none;
+}
+#match-cue strong { font-size: .92rem; }
+#match-cue small { display: block; color: #ddcbc2; font-size: .77rem; }
+.battle-trail {
+  position: absolute;
+  height: 3px;
+  transform-origin: left center;
+  color: var(--burst-color);
+  background: linear-gradient(90deg, transparent, currentColor 75%, #fff1d0);
+  filter: drop-shadow(0 0 5px currentColor);
+  animation: battle-trail 470ms ease-out both;
+}
+.trail-block { height: 5px; border-block: 1px solid currentColor; background: none; }
+.trail-cast { height: 4px; border-radius: 50%; }
+.battle-portrait {
+  position: absolute;
+  width: clamp(3.1rem, 7vw, 5.8rem);
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid var(--burst-color);
+  border-radius: .45rem;
+  box-shadow: 0 0 1.3rem var(--burst-color);
+  translate: -50% -50%;
+  animation: battle-cast 620ms ease-out both;
+}
+.portrait-fall { animation-name: battle-fall; }
 .battle-burst { position: absolute; color: var(--burst-color); }
 .battle-burst::before, .battle-burst::after {
   content: '';
@@ -408,8 +448,11 @@ body:has(#arena.match-live) {
   animation: battle-ring 620ms ease-out both;
 }
 .battle-burst::after { animation-delay: 75ms; border-width: 1px; }
-.burst-summon::after, .burst-mana::after { border-radius: 0; rotate: 45deg; }
-.burst-shield::before { border-radius: 34% 34% 50% 50%; }
+.burst-summon::after, .burst-mana::after, .burst-quest::after { border-radius: 0; rotate: 45deg; }
+.burst-shield::before, .burst-block::before { border-radius: 34% 34% 50% 50%; }
+.burst-quest::before, .burst-result::before { border-style: double; border-width: 4px; }
+.burst-draw::before { border-radius: 5px; width: 31px; left: -15px; rotate: -12deg; }
+.burst-fall::before { border-style: dashed; }
 .burst-freeze::before, .burst-freeze::after { border-radius: 3px; rotate: 45deg; }
 .burst-attack::before, .burst-impact::before {
   border-radius: 2px; rotate: -28deg; height: 8px; top: -4px; background: currentColor;
@@ -431,6 +474,20 @@ body:has(#arena.match-live) {
   animation: battle-number 780ms ease-out both;
 }
 @keyframes battle-ring { from { scale: .55; opacity: .76; } to { scale: 2.25; opacity: 0; } }
+@keyframes battle-trail {
+  from { clip-path: inset(0 100% 0 0); opacity: .95; }
+  32% { clip-path: inset(0 0 0 0); opacity: .95; }
+  to { clip-path: inset(0 0 0 92%); opacity: 0; }
+}
+@keyframes battle-cast {
+  from { transform: translateY(14px) scale(.76); opacity: 0; }
+  30%, 52% { transform: translateY(-12px) scale(1); opacity: 1; }
+  to { transform: translateY(-26px) scale(.9); opacity: 0; }
+}
+@keyframes battle-fall {
+  from { opacity: .95; filter: saturate(.75); }
+  to { transform: translateY(18px) rotate(13deg) scale(.8); opacity: 0; filter: saturate(0); }
+}
 @keyframes battle-spark { from { translate: 0 0; opacity: .85; } to { translate: var(--dx) var(--dy); opacity: 0; scale: .3; } }
 @keyframes battle-number {
   from { transform: translate(-50%, -80%); opacity: 0; }

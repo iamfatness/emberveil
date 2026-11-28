@@ -1250,18 +1250,28 @@ function declareAttack(game,seat,opponent,ids){
 }
 export function expireCombat(game, now=Date.now()){
   if(game.winner!==null||!hasStarted(game)) return false;
-  if(!game.combat){
-    if(!game.turnDeadline||game.turnDeadline>now) return false;
+  const combat=game.combat;
+  const deadline=combat?.deadline??game.turnDeadline;
+  if(!deadline||deadline>now) return false;
+  const seat=combat?.defender??game.active;
+  const action={type:combat?(combat.phase==='block'?'block-timeout':'reaction-timeout'):'turn-timeout'};
+  const before=captureMove(game,seat,action);
+  expireActionWindow(game);
+  recordMove(game,seat,action,before);
+  return true;
+}
+function expireActionWindow(game){
+  const combat=game.combat;
+  if(!combat){
     game.last=game.players[game.active].name+' ran out of turn time.';
     game.effect=null;
     if(game.players[game.active].choice) finishChoice(game,0);
     if(game.winner===null) endTurn(game);
-    return true;
+    return;
   }
-  if(game.combat.deadline>now) return false;
   game.effect=null;
-  if(game.combat.strikes){
-    if(game.combat.phase==='block'){
+  if(combat.strikes){
+    if(combat.phase==='block'){
       if(hasNode(game.players[combat.attacker],'thorn',1)){
         const defenders=game.players[combat.defender].board.filter(unit=>!unit.exhausted);
         defenders.slice(0,combat.strikes.length).forEach((unit,i)=>{combat.strikes[i].blocker=unit.id;});
@@ -1275,7 +1285,6 @@ export function expireCombat(game, now=Date.now()){
     finishBlocking(game,blocker?.id??null);
   }
   else resolveCombat(game);
-  return true;
 }
 function respondToCombat(game,seat,data){
   const combat=game.combat;
@@ -1365,7 +1374,107 @@ function ashGateRecord(game){
   }
 }
 
-export function act(game, seat, data){
+const moveCues={
+  start:['turn','Battle begins'], end:['turn','Turn ends'], 'turn-timeout':['turn','Turn expired'],
+  redraw:['draw','Hand redrawn'], 'choose-card':['draw','Card chosen'], summon:['summon','Leader summoned'],
+  play:['cast','Card played'], react:['cast','Reaction cast'], pass:['choice','Reaction passed'],
+  attack:['attack','Attack declared'], 'attack-batch':['attack','Attack declared'],
+  block:['block','Blockers assigned'], blocks:['block','Blockers assigned'],
+  'block-timeout':['block','Block window closed'], 'reaction-timeout':['choice','Reaction window closed'],
+  unlock:['growth','Leader ability unlocked'], concede:['choice','Player conceded'],
+  proposeTruce:['truce','Truce offered'], acceptTruce:['truce','Truce accepted'], declineTruce:['truce','Truce declined'],
+  contestObjective:['quest','Courtyard key contested'], 'ash-gate-choice':['quest','Ash Gate choice made'],
+  'read-record':['choice','Missing name read'], rekindle:['quest','Dawnward mark restored']
+};
+
+function captureMove(game,seat,data){
+  const actor=game.players[seat];
+  const play=['play','react'].includes(data.type);
+  return {
+    kind:play?actor?.hand.find(unit=>unit.id===data.id)?.kind:undefined,
+    combat:game.combat, round:game.round, winner:game.winner, last:game.last,
+    players:game.players.map(p=>({life:p.life,mana:p.mana,max:p.max,hand:p.hand.length,
+      eliminated:p.eliminated,board:new Map(p.board.map(unit=>[unit.id,{hp:unit.hp,frozen:unit.frozen,kind:unit.kind}]))}))
+  };
+}
+
+function recordMove(game,seat,data,before){
+  const [type,label]=moveCues[data.type]??['quest','Objective advanced'];
+  const primary={type,seat};
+  if(type==='turn') primary.seat=game.active;
+  const cue={...primary,label:before.kind?cards[before.kind].name:label,kind:before.kind};
+  const combat=game.combat??before.combat;
+  const targetSeat=combat?.defender??data.opponent??(game.players.length===2?1-seat:undefined);
+  const effects=[];
+  if(type==='attack'){
+    const batch=data.type==='attack-batch';
+    for(const unit of batch?data.ids:[data.id]) effects.push({type,seat,unit,targetSeat,targetUnit:!batch&&data.target!=='hero'?data.target:undefined});
+  }else if(type==='block'){
+    const blocks=data.blocks??(data.id?[{blocker:data.id,attacker:combat?.unit}]:
+      combat?.strikes?.filter(strike=>strike.blocker).map(strike=>({blocker:strike.blocker,attacker:strike.unit}))??
+      (combat?.blocker?[{blocker:combat.blocker,attacker:combat.unit}]:[]));
+    for(const block of blocks) effects.push({type,seat,unit:block.blocker,targetSeat:combat?.attacker,targetUnit:block.attacker});
+  }else if(type==='cast'){
+    const strike=combat?.strikes?.find(strike=>strike.unit===data.strike)??combat;
+    const card=cards[before.kind];
+    const ownReaction=data.type==='play'&&card.reaction;
+    const attackBoost=data.type==='react'&&card.reaction==='boost';
+    const reaction=data.type==='react';
+    const targeted=reaction||ownReaction||card.damage||card.freeze;
+    const recipient=ownReaction?seat:attackBoost?combat?.attacker:targetSeat;
+    const recipientUnit=ownReaction?data.target:reaction?(attackBoost?strike?.unit:strike?.blocker):data.target;
+    effects.push({...primary,kind:before.kind,unit:data.id,fromHand:true,
+      targetSeat:targeted?recipient:undefined,targetUnit:targeted&&recipientUnit!=='hero'?recipientUnit:undefined});
+    if(reaction) effects.push({type:attackBoost?'boost':'shield',seat:recipient,unit:recipientUnit});
+  }else if(type!=='summon') effects.push(primary);
+  if(!effects.length&&type!=='summon') effects.push(primary);
+
+  const special=game.effect;
+  if(special&&special.type!=='attack'&&!(data.type==='react'&&['boost','shield'].includes(special.type))) effects.push({...special});
+  const add=(type,index,unit,amount,kind)=>{
+    const duplicate=effects.find(e=>e.type===type&&e.seat===index&&e.unit===unit);
+    if(duplicate) Object.assign(duplicate,{amount,kind:kind??duplicate.kind});
+    else effects.push({type,seat:index,unit,amount,kind});
+  };
+  for(const [index,p] of game.players.entries()){
+    const old=before.players[index];
+    if(!old) continue;
+    const life=Math.max(0,p.life)-Math.max(0,old.life);
+    if(life) add(life<0?'impact':'heal',index,undefined,life);
+    if(p.max!==old.max||p.mana>old.mana) add('mana',index,undefined,p.max!==old.max?p.max-old.max:p.mana-old.mana);
+    const draws=p.hand.length-old.hand+Number(index===seat&&Boolean(before.kind));
+    if(draws>0) add('draw',index,undefined,draws);
+    const board=new Map(p.board.map(unit=>[unit.id,unit]));
+    for(const [id,unit] of board){
+      const previous=old.board.get(id);
+      if(!previous) add('summon',index,id,undefined,unit.kind);
+      else {
+        if(unit.hp!==previous.hp) add(unit.hp<previous.hp?'impact':'heal',index,id,unit.hp-previous.hp);
+        if((unit.frozen??0)>(previous.frozen??0)) add('freeze',index,id);
+      }
+    }
+    for(const [id,unit] of old.board){
+      if(!board.has(id)) add('fall',index,id,undefined,unit.kind);
+    }
+    if(p.eliminated&&!old.eliminated) add('fall',index);
+  }
+  if(game.winner!==null&&before.winner===null) add('result',game.winner);
+  if(data.type==='ash-gate-choice') cue.label=ashGateApproaches[data.approach].label;
+  else if(type==='quest'&&game.last&&game.last!==before.last) cue.label=game.last;
+  if(type==='turn'&&data.type!=='start'&&game.round!==before.round) cue.label=`${game.players[game.active].name}'s turn`;
+  const moves=game.moves??=[];
+  const id=(moves.at(-1)?.id??0)+1;
+  moves.push({id,cue,effects});
+  if(moves.length>40) moves.shift();
+}
+
+export function act(game,seat,data){
+  const before=captureMove(game,seat,data);
+  applyMove(game,seat,data);
+  recordMove(game,seat,data,before);
+}
+
+function applyMove(game, seat, data){
   game.effect=null;
   if(data.type==='ash-gate-choice'){
     if(hasStarted(game)||!game.ashGate||typeof data.approach!=='string'||!Object.hasOwn(ashGateApproaches,data.approach)){
@@ -1848,7 +1957,7 @@ export function view(game, seat, revision){
   return {revision,seat,ranked:game.ranked,teamsPolitics:game.teamsPolitics,privateTable:game.privateTable,leaderDamageEnabled:game.leaderDamageEnabled,
     threat:tableThreat(game),objective:game.objective,truce:game.truce,truceOfferedTurn:game.truceOfferedTurn,chapter:game.chapter,
     episode:game.episode,chapterRevision:game.chapterRevision,difficulty:game.difficulty,priorOutcome:game.priorOutcome,foundryKeyholder:game.foundryKeyholder,chapterOutcome:chapterOutcome(game),
-    ashGateVotes:game.ashGate?.votes,ashGateRecord:ashGateRecord(game),ashGateLegacy:game.ashGateLegacy,
+    ashGateVotes:game.ashGate?.votes,ashGateRecord:ashGateRecord(game),ashGateLegacy:game.ashGateLegacy,moves:game.moves,
     record:game.record?.reader===seat?game.record:undefined,story:game.story,mode:game.mode,botCount:game.botCount,turnDeadline:game.turnDeadline,turnSeconds:game.turnSeconds,attacked:game.attacked,readyToStart:readyToStart(game),humanLimit:humanLimit(game),rules:game.rules,combat:visibleCombat,effect:game.effect,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
     players:game.players.map((p,i)=>({name:p.name,team:p.team,bot:p.bot,redrawn:p.redrawn,life:p.life,leaderDamage:game.leaderDamageEnabled?Object.values(p.leaderDamage??{}):undefined,mana:p.mana,max:p.max,leader:p.leader,leaderCost:p.leader?leaderCost(p):undefined,eliminated:!!p.eliminated,board:p.board,
       hand:i===seat?p.hand:undefined,choice:i===seat&&p.choice?{type:p.choice,cards:p.deck.slice(0,p.choice==='oracle'?1:2)}:undefined,handSize:p.hand.length,deckSize:p.deck.length,growth:p.growth||0,tree:p.tree,playedCreatureLastTurn:p.playedCreatureLastTurn,earlyReactionPlayed:p.earlyReactionPlayed,recordRead:i===seat?p.recordRead:undefined,unlocked:p.unlocked||0}))};
