@@ -1,4 +1,4 @@
-import {player,act,view,hasStarted,MAX_PLAYERS,leaders,expireCombat,playBots,modes,humanLimit,watchDifficulties,rankedLeaders,chapters,previousChapter} from './game.mjs';
+import {player,act,view,hasStarted,MAX_PLAYERS,leaders,expireCombat,playBots,modes,humanLimit,watchDifficulties,rankedLeaders,chapters,previousChapter,ashGateCarryover} from './game.mjs';
 const storageReady = new WeakMap();
 export function prepareStorage(db){
   let ready=storageReady.get(db);
@@ -65,6 +65,8 @@ export async function api(request, db){
       const foundryKeyholder=episode==='third-seal'&&['workers','court'].includes(input.foundryKeyholder)?input.foundryKeyholder:undefined;
       const game={players:[{...player(name||'Player 1',key,leader,mode==='coop'?input.resume:undefined,ranked),team:0}],mode,ranked,privateTable,teamsPolitics:mode==='teams',leaderDamageEnabled:!ranked&&mode!=='coop'&&input.leaderDamage===true,chapter,episode,chapterRevision,difficulty,priorOutcome,foundryKeyholder,botCount,turnSeconds,rules:3,started:false,active:0,round:1,winner:null,last:''};
       const id=crypto.randomUUID().slice(0,8).toUpperCase();
+      if(episode==='watch') game.ashGate={votes:{}};
+      if(episode==='accord') game.ashGateLegacy=ashGateCarryover(input.ashGateLegacy,priorOutcome);
       await db.prepare('INSERT INTO rooms (code,state) VALUES (?,?)').bind(id,JSON.stringify(game)).run();
       return response({...view(game,0,0),code:id});
     }
