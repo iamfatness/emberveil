@@ -36,15 +36,6 @@ body:has(#arena:not([hidden])){background:#13100f url('/art/arena.webp') center 
 .leader{display:flex;align-items:center;gap:15px}
 .leader-art{width:85px;height:75px;flex:none;border:1px solid #9f723f;border-radius:5px;overflow:hidden}
 .leader-art img{width:100%;height:100%;object-fit:cover}
-.effect-summon{animation:summon .72s ease-out both}
-.effect-attack{animation:attack .48s ease-out both}
-.effect-impact,.effect-boost{animation:impact .62s ease-out both}
-.effect-shield,.effect-heal{animation:ward .75s ease-out both}
-@keyframes summon{from{opacity:.5;transform:scale(.92);filter:brightness(2) drop-shadow(0 0 12px #ffc064)}to{opacity:1;transform:scale(1);filter:none}}
-@keyframes attack{35%{transform:translateY(-6px);filter:brightness(1.65) drop-shadow(0 0 7px #ffb456)}}
-@keyframes impact{22%{transform:translateX(-3px);filter:brightness(1.65) drop-shadow(0 0 7px #ec6a3d)}45%{transform:translateX(2px)}}
-@keyframes ward{25%{filter:brightness(1.4) drop-shadow(0 0 9px #9fcaec)}}
-@media(prefers-reduced-motion:reduce){.effect-summon,.effect-attack,.effect-impact,.effect-boost,.effect-shield,.effect-heal{animation:none}}
 .deck-detail{display:flex;align-items:center;gap:9px;min-height:44px}
 .deck-detail img{width:44px;height:38px;object-fit:cover;border-radius:4px;border:1px solid #96704b}
 .card:disabled[data-zone='hand'],.card:disabled[data-zone='reaction']{border-color:#5d4532}
@@ -322,3 +313,134 @@ body:has(#arena.match-live) #rules { padding: .3rem .65rem; }
 .chronicle-link{text-decoration:none}
 body:has(#arena.match-live) .chronicle-link{display:none}
 @media(max-width:400px){.site-links .quiet{padding:.45rem .55rem;white-space:nowrap}}
+
+/* Keep the canvas of the lobby behind its controls. */
+.hero { isolation: isolate; overflow: hidden; }
+.hero-copy { z-index: 1; }
+.hero-embers { position: absolute; inset: 0; pointer-events: none; }
+.hero-embers::before, .hero-embers::after {
+  content: ''; position: absolute; inset: -20% 0;
+  background: radial-gradient(circle at 61% 68%, #ffd293 0 1px, #ff912155 2px, transparent 5px),
+    radial-gradient(circle at 76% 74%, #ee9a59 0 1px, transparent 3px),
+    radial-gradient(circle at 88% 52%, #ffd293 0 1px, transparent 3px),
+    radial-gradient(circle at 54% 83%, #ee9a59 0 1px, transparent 4px),
+    radial-gradient(circle at 92% 81%, #ee9a59 0 1px, transparent 4px);
+  animation: drifting-embers 12s linear infinite;
+}
+.hero-embers::after { animation-delay: -7s; scale: .85; }
+@keyframes drifting-embers {
+  0% { transform: translateY(12%); opacity: 0; }
+  24%, 62% { opacity: .8; }
+  100% { transform: translate(2%, -32%); opacity: 0; }
+}
+
+body:has(#arena.match-live) {
+  background: linear-gradient(180deg,#18111ac9,#100c11eb), url('/art/arena.webp') center / cover, #151017;
+}
+.match-shell { --scene-light: #98714a; --scene-shadow: #251b25; }
+.match-shell[data-scene='foundry'] { --scene-light: #aa5a3f; --scene-shadow: #2d1718; }
+.match-shell[data-scene='grove'] { --scene-light: #7a8a62; --scene-shadow: #1a211d; }
+.match-shell[data-scene='water'] { --scene-light: #57959f; --scene-shadow: #11272f; }
+.board-row {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(90deg, var(--scene-shadow) 6%, #18141cd9 58%, #18141c90),
+    url('/art/arena.webp') 50% 36% / cover, var(--scene-shadow);
+  box-shadow: inset 0 0 26px #0d0b10b0;
+}
+.board-row::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  inset: 0;
+  background: radial-gradient(ellipse at 73% 110%, color-mix(in srgb, var(--scene-light) 35%, transparent), transparent 62%);
+}
+.your-board { background-position: 0 0, 50% 70%; }
+.board-row[data-active='true'] { border-color: color-mix(in srgb, var(--scene-light) 65%, #e7b981); }
+.board-heading { background: #171119d9; }
+.board-row[data-active='true'] .board-heading { box-shadow: inset 3px 0 var(--scene-light); }
+.board-heading img { flex: none; width: 24px; height: 22px; object-fit: cover; border: 1px solid #b68c626b; border-radius: 3px; }
+.board-heading small:empty { display: none; }
+.hand-dock { background: linear-gradient(170deg, #2e232b, #17131c); }
+.hand-resources .life-resource, .hand-resources .mana-resource {
+  padding: .13rem .32rem;
+  border-radius: .25rem;
+  background: #160f19;
+  font-variant-numeric: tabular-nums;
+}
+.hand-resources .mana-resource { color: #d9c3fa; }
+
+.card { --frame-color: #9b754f; --frame-dark: #302018; border-color: var(--frame-color); }
+.card[data-frame='spell'] {
+  --frame-color: #9180aa;
+  --frame-dark: #30243d;
+  background: linear-gradient(150deg,#47355a,#241c33 70%);
+}
+.card[data-frame='leader'] {
+  --frame-color: #d7a963;
+  --frame-dark: #472b14;
+  background: linear-gradient(150deg,#654620,#302018 75%);
+}
+.card[data-frame] .card-art { border-color: var(--frame-color); background: var(--frame-dark); }
+.card[data-condition='frozen'] .card-art { border-color: #9eeaff; box-shadow: inset 0 0 8px #baf5ff; }
+.card[data-condition='frozen'] .card-art img { opacity: .65; filter: saturate(.55); }
+.card[data-condition='exhausted'] .card-art img { filter: saturate(.64) brightness(.83); }
+.card[data-frame='spell'] .mana-cost { border-color: #c9a9ea; color: #f5e7fd; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .card:not(:disabled) .card-art img { transition: scale .2s ease-out; }
+  .card:not(:disabled):hover .card-art img { scale: 1.07; }
+}
+
+#match-effects { position: fixed; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.battle-burst { position: absolute; color: var(--burst-color); }
+.battle-burst::before, .battle-burst::after {
+  content: '';
+  position: absolute;
+  display: block;
+  width: 48px;
+  height: 48px;
+  left: -24px;
+  top: -24px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  box-shadow: 0 0 12px currentColor, inset 0 0 8px currentColor;
+  animation: battle-ring 620ms ease-out both;
+}
+.battle-burst::after { animation-delay: 75ms; border-width: 1px; }
+.burst-summon::after, .burst-mana::after { border-radius: 0; rotate: 45deg; }
+.burst-shield::before { border-radius: 34% 34% 50% 50%; }
+.burst-freeze::before, .burst-freeze::after { border-radius: 3px; rotate: 45deg; }
+.burst-attack::before, .burst-impact::before {
+  border-radius: 2px; rotate: -28deg; height: 8px; top: -4px; background: currentColor;
+}
+.battle-burst i {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: currentColor;
+  box-shadow: 0 0 9px currentColor;
+  rotate: 45deg;
+  animation: battle-spark 560ms ease-out both;
+}
+.battle-burst b {
+  position: absolute;
+  font-size: clamp(1.1rem, 2vw, 1.55rem);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 3px #120c13, 0 0 10px #120c13, 0 0 18px #120c13;
+  animation: battle-number 780ms ease-out both;
+}
+@keyframes battle-ring { from { scale: .55; opacity: .76; } to { scale: 2.25; opacity: 0; } }
+@keyframes battle-spark { from { translate: 0 0; opacity: .85; } to { translate: var(--dx) var(--dy); opacity: 0; scale: .3; } }
+@keyframes battle-number {
+  from { transform: translate(-50%, -80%); opacity: 0; }
+  18%, 66% { opacity: 1; }
+  to { transform: translate(-50%, calc(-100% - 15px)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-embers, #match-effects { display: none; }
+}
+@media (max-width: 390px) {
+  .board-heading img { display: none; }
+  .hand-resources .life-resource, .hand-resources .mana-resource { padding-inline: .19rem; }
+}

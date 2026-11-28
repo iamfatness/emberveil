@@ -1183,7 +1183,8 @@ function batchResponse(game,seat,data){
     p.mana-=cost;
     applyReaction(game,seat,kind,strike);
     game.last=p.name+' cast '+card.name+'.';
-    game.effect={type:card.reaction,seat:combat.defender,unit:strike.blocker};
+    game.effect=card.reaction==='boost'?{type:'boost',seat:combat.attacker,unit:strike.unit}:
+      {type:'shield',seat:combat.defender,unit:strike.blocker};
   }
   combat.queue=combat.queue.filter(i=>i!==seat);
   if(!combat.queue.length) resolveBatch(game);
@@ -1254,7 +1255,8 @@ function respondToCombat(game,seat,data){
     p.mana-=cost;
     applyReaction(game,seat,kind,combat);
     game.last=p.name+' cast '+card.name+'.';
-    game.effect={type:card.reaction,seat:combat.defender,unit:combat.blocker};
+    game.effect=card.reaction==='boost'?{type:'boost',seat:combat.attacker,unit:combat.unit}:
+      {type:'shield',seat:combat.defender,unit:combat.blocker};
   }
   combat.queue.shift();
   if(!combat.queue.length) resolveCombat(game);
@@ -1626,6 +1628,7 @@ export function act(game, seat, data){
         if(hasNode(p,'weave',2)) drawCard(p);
       }else recipient.earlyShield=(recipient.earlyShield??0)+shieldAmount(p);
       game.last=p.name+' cast '+card.name+'.';
+      game.effect={type:card.reaction,seat,unit:recipient.id};
       recordLanePlay(game,seat,false);
       return;
     }
@@ -1665,8 +1668,8 @@ export function act(game, seat, data){
     }
     game.last=p.name+' played '+card.name+'.';
     if(card.power||sprite) game.effect={type:'summon',seat,unit:sprite?.id??unit.id};
-    else if(card.heal||card.ramp) game.effect={type:'heal',seat};
-    else game.effect={type:card.freeze?'shield':'boost',seat:enemySeat,unit:target?.id};
+    else if(card.heal||card.ramp) game.effect={type:card.ramp?'mana':'heal',seat};
+    else game.effect={type:card.freeze?'freeze':'impact',seat:enemySeat,unit:target?.id};
     if(card.power) seatDelegate(game,seat,unit.kind);
     recordLanePlay(game,seat,Boolean(card.power));
   }else if(data.type==='attack'){

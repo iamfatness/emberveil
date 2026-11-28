@@ -1,6 +1,9 @@
 import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn,openRoadRoute,openRoadGoal,wagonCost,reedFordRoute,reedFordGoal,fordPlanks,shallowsCost,shallowsOpen,farBankRoute,farBankGoal,farBankUnloadMana,farBankShelterDamage,farBankManaUsed} from '/game.mjs';
+import {createPresentation} from '/presentation.mjs';
+
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
+const presentation=createPresentation(arena,$('match-effects'));
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
 const query=new URL(location.href).searchParams;
 const requested=query.get('room')?.toUpperCase()||'';
@@ -85,23 +88,15 @@ function escape(value){
 function portrait(kind){
   return `<img src="/art/${cards[kind].art??kind}.webp" alt="" draggable="false">`;
 }
-function animateEffect(){
-  const effect=game.effect;
-  if(!effect) return;
-  const field=arena.querySelector(`[data-seat="${effect.seat}"]`);
-  if(!field) return;
-  const unit=effect.unit&&field.querySelector(`[data-id="${CSS.escape(effect.unit)}"]`);
-  const target=unit||field;
-  target.classList.add('effect-'+effect.type);
-  target.addEventListener('animationend',()=>target.classList.remove('effect-'+effect.type),{once:true});
-}
 function card(unit,zone,enabled,opponent){
   const info=cards[unit.kind];
   const inHand=zone==='hand'||zone==='reaction';
   const owner=game.players[opponent??game.seat];
   const cost=cardCost(owner,unit.kind);
   const detail=inHand?(info.text??(info.damage?'Deal '+info.damage+' damage':info.heal?'Gain '+info.heal+' life':info.power+' / '+info.hp)):unitPower(owner,unit)+' / '+unit.hp;
-  return `<button class="card" data-kind="${unit.kind}" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id||attackIds.includes(unit.id)}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="card-art">${portrait(unit.kind)}${inHand?`<b class="mana-cost" aria-label="${cost} mana">${cost}</b>`:''}</span><span class="card-detail">${detail}${unit.earlyBoost?' · +'+unit.earlyBoost+' power in combat':''}${unit.earlyShield?' · '+unit.earlyShield+' damage prevention in combat':''}${!inHand&&(unit.frozen||unit.freezeTurn)?' · Frozen':zone==='mine'&&!unit.ready?' · Resting':''}</span></button>`;
+  const condition=inHand?'':unit.frozen||unit.freezeTurn?'Frozen':unit.exhausted?'Exhausted':!unit.ready?'Resting':'';
+  const frame=Object.hasOwn(leaders,unit.kind)?'leader':info.power?'creature':'spell';
+  return `<button class="card" data-kind="${unit.kind}" data-frame="${frame}" data-condition="${condition.toLowerCase()}" data-zone="${zone}" data-id="${unit.id}" data-opponent="${opponent??''}" data-selected="${selected?.id===unit.id||attackIds.includes(unit.id)}" ${enabled?'':'disabled'}><strong>${info.name}</strong><span class="card-art">${portrait(unit.kind)}${inHand?`<b class="mana-cost" aria-label="${cost} mana">${cost}</b>`:''}</span><span class="card-detail">${detail}${unit.earlyBoost?' · +'+unit.earlyBoost+' power in combat':''}${unit.earlyShield?' · '+unit.earlyShield+' damage prevention in combat':''}${condition?' · '+condition:''}</span></button>`;
 }
 function treePanel(mine, active){
   if(!mine.leader || !trees[mine.leader]) return '';
@@ -1023,7 +1018,9 @@ function render(){
     const early=active&&!game.attacked&&mine.board.length&&earlyReaction(mine,unit.kind);
     return card(unit,reaction&&!early?'reaction':'hand',(reaction?reacting||early:active)&&cardCost(mine,unit.kind)<=mine.mana);
   }).join('');
-  renderBattlefield(`<div class="match-shell">
+  const scene=game.episode==='foundry'?'foundry':['orchard','third-seal'].includes(game.episode)?'grove':
+    ['tide','reed-ford','far-bank'].includes(game.episode)?'water':'court';
+  renderBattlefield(`<div class="match-shell" data-scene="${scene}">
     <div class="match-header">
       <div class="match-status"><h1 id="status" role="status">${escape(status)}</h1><p title="${escape(game.last??'')}">${game.last&&!error?escape(game.last):''}</p></div>
       ${primaryClock}<button class="quiet" data-action="${outcome||mine.eliminated?'leave':'concede'}" ${busy?'disabled':''}>${outcome||mine.eliminated?'Lobby':'Concede'}</button>
@@ -1032,14 +1029,14 @@ function render(){
     <nav class="match-tools" aria-label="Match panels">${tabs}</nav>
     <div class="match-center ${panel?'has-drawer':''}">
       <div class="match-board">
-        ${other?`<section data-seat="${viewedSeat}" class="board-row" aria-label="${escape(other.name)}’s battlefield">
-          <div class="board-heading"><strong>${escape(other.name)}</strong><small>${teamLabel(other)}</small>
+        ${other?`<section data-seat="${viewedSeat}" data-active="${game.active===viewedSeat&&!outcome}" class="board-row" aria-label="${escape(other.name)}’s battlefield">
+          <div class="board-heading">${other.leader?portrait(other.leader):''}<strong>${escape(other.name)}</strong><small>${teamLabel(other)}</small>
             ${targetPlayer?`<button class="gold target-button" data-action="hero" data-opponent="${viewedSeat}">${attackIds.length?`Attack with ${attackIds.length}`:selected?.type==='read-record'?'Read hand':'Target player'}</button>`:''}
           </div>
           <div class="cards" data-scroll="enemy-${viewedSeat}" tabindex="0" aria-label="${escape(other.name)}’s creatures">${other.eliminated?'Out of the match':other.board.map(unit=>card(unit,'enemy',!!targetCreature,viewedSeat)).join('')||'<span>No creatures</span>'}</div>
         </section>`:''}
-        <section data-seat="${game.seat}" class="board-row your-board" aria-label="Your battlefield">
-          <div class="board-heading"><strong>Your battlefield</strong>${attackIds.length?`<small>${attackIds.length} selected</small>`:''}</div>
+        <section data-seat="${game.seat}" data-active="${game.active===game.seat&&!outcome}" class="board-row your-board" aria-label="Your battlefield">
+          <div class="board-heading">${mine.leader?portrait(mine.leader):''}<strong>Your battlefield</strong>${attackIds.length?`<small>${attackIds.length} selected</small>`:''}</div>
           <div class="cards" data-scroll="mine" tabindex="0" aria-label="Your creatures">${mine.board.map(unit=>card(unit,blocking&&!combat.strikes?'block':'mine',blocking&&!combat.strikes?!unit.exhausted:active&&(selected?.own||unit.ready&&!game.attacked))).join('')||'<span>No creatures</span>'}</div>
         </section>
       </div>
@@ -1049,7 +1046,7 @@ function render(){
       </aside>`:''}
     </div>
     <section class="hand-dock" aria-label="Your hand">
-      <div class="hand-toolbar"><div class="hand-resources"><strong>Your hand</strong><span title="Life">♥ ${Math.max(0,mine.life)}</span><span title="Available mana">◆ ${mine.mana}/${mine.max}</span></div>
+      <div class="hand-toolbar"><div class="hand-resources"><strong>Your hand</strong><span class="life-resource" title="Life">♥ ${Math.max(0,mine.life)}</span><span class="mana-resource" title="Available mana">◆ ${mine.mana}/${mine.max}</span></div>
         <div class="hand-actions">${leaderButton}<button class="gold" data-action="end" ${active?'':'disabled'}>End turn</button></div>
       </div>
       <div class="cards" tabindex="0" data-scroll="hand" aria-label="Cards in your hand">${hand||'<span>Your hand is empty</span>'}</div>
@@ -1059,6 +1056,7 @@ function render(){
 function enter(state){
   const nextRoom=state.code||requested;
   if(room!==nextRoom){
+    presentation.clear();
     viewedSeat=undefined;
     openPanel='';
     actionWindow='';
@@ -1100,6 +1098,7 @@ async function move(data){
   if(busy) return;
   busy=true;
   error='';
+  const previous=game;
   try{
     game=await api(room,{...data,revision:game.revision});
     selected=undefined;
@@ -1107,7 +1106,7 @@ async function move(data){
     if(!game.combat) reactionTarget='';
   }catch(reason){error=reason.message;return;}
   finally{busy=false;render();}
-  animateEffect();
+  presentation.play(previous,game);
 }
 arena.onclick=async event=>{
   const button=event.target.closest('button');
@@ -1260,6 +1259,7 @@ setInterval(async ()=>{
   try{
     const next=await api(room);
     if(!busy&&next.revision>game.revision){
+      const previous=game;
       if(next.round!==game.round||next.combat?.id!==game.combat?.id||next.winner!==null){
         selected=undefined;
         attackIds=[];
@@ -1268,7 +1268,7 @@ setInterval(async ()=>{
       if(!game.combat) reactionTarget='';
       error='';
       render();
-      animateEffect();
+      if(!watching) presentation.play(previous,next);
     }
   }catch{
     if(!busy&&error!=='Connection interrupted. Reconnecting…'){
