@@ -444,3 +444,44 @@ body:has(#arena.match-live) {
   .board-heading img { display: none; }
   .hand-resources .life-resource, .hand-resources .mana-resource { padding-inline: .19rem; }
 }
+
+.hero-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; }
+.waiting:has(.ash-gate) { max-width: 760px; }
+#arena .ash-gate { padding: 0; overflow: hidden; }
+.ash-gate-setting {
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  min-height: 176px;
+  padding: 1.1rem clamp(1rem, 4vw, 1.65rem);
+  background: linear-gradient(0deg, #130d0bef, #1c1119a3 46%, #1c111930), url('/citadel.webp') center 46% / cover;
+  border-bottom: 1px solid #8d673c;
+}
+.ash-gate-setting h2 { font-size: clamp(1.2rem, 3vw, 1.65rem); }
+#arena .ash-gate .ash-gate-setting p { margin: 0; max-width: 49ch; color: #f5e4cc; }
+.ash-gate-conversation, .ash-gate > :not(.ash-gate-setting) { margin-inline: clamp(.8rem, 3vw, 1.65rem); }
+.ash-gate-conversation { margin-block: 1rem; }
+.ash-gate-conversation strong { color: var(--gold); }
+.ash-gate-conversation details { padding: .45rem 0; border-block-start: 1px solid #5b4331; }
+.ash-gate-conversation summary { color: var(--ink); cursor: pointer; font-weight: 700; }
+.ash-gate-conversation details p { padding-inline-start: 1rem; }
+.ash-gate-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: .65rem; }
+.ash-gate-choice {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: .35rem;
+  align-self: stretch;
+  padding: .75rem;
+  border: 1px solid #886649;
+  border-radius: .4rem;
+  background: #211719;
+  color: var(--ink);
+  text-align: left;
+}
+.ash-gate-choice span { font-size: .88rem; line-height: 1.4; }
+.ash-gate-choice small { color: #cbbb9f; }
+.ash-gate-choice:hover, .ash-gate-choice[aria-pressed='true'] { background: #39281b; border-color: #ecc17d; }
+.ash-gate-choice[aria-pressed='true'] { box-shadow: inset 3px 0 #ecc17d; }
+#arena .ash-gate .ash-gate-response { margin-block: .7rem; color: #f3d7a4; }
+#arena .ash-gate .ash-gate-objective { margin-block: .65rem 1rem; }
+.story .ash-gate-record { border-inline-start: 2px solid #c39153; padding-inline-start: .65rem; }

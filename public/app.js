@@ -1,5 +1,6 @@
 import {cards,leaders,trees,MAX_PLAYERS,modes,lore,wardCost,wardMarks,cardCost,unitPower,summonTarget,earlyReaction,objectiveCost,objectiveGoal,leaderDamageGoal,watchDifficulties,gates,gateGoal,chapters,previousChapter,routesByEpisode,routeGoal,orderDeliveryCost,foundryRules,foundryDifficulty,orchardPlots,orchardCost,orchardDifficulty,archiveRoutes,archiveCost,witnessLead,registerSections,registerCost,registerRecovery,registerGoal,registerStartingPages,dawnRoute,dawnReadingCost,dawnHearingTurns,dawnGoal,stairCosts,stairGoal,stairHelp,landingRoute,landingGoal,liftCosts,upperDoorRoute,upperDoorGoal,upperDoorGuards,supplyCost,countDoorGuards,commonTableRoute,commonTableGoal,lampReserve,firstPetitionRoute,firstPetitionGoal,maxSignatureSupport,signatureSupport,gateCharterRoute,gateCharterGoal,charterHearingCost,canCarryCharterCopy,sharedKeysRoute,sharedKeysGoal,sharedKeyCost,livingKeyBearers,lanePlayThisTurn,openRoadRoute,openRoadGoal,wagonCost,reedFordRoute,reedFordGoal,fordPlanks,shallowsCost,shallowsOpen,farBankRoute,farBankGoal,farBankUnloadMana,farBankShelterDamage,farBankManaUsed} from '/game.mjs';
 import {createPresentation} from '/presentation.mjs';
+import {ashGateApproaches,ashGateLegacies} from '/game.mjs';
 
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena');
@@ -20,6 +21,10 @@ function saveCoopMemory(){
   if(game.chapterOutcome){
     memory.outcomes??={};
     memory.outcomes[game.episode??'watch']=game.chapterOutcome;
+    if(game.episode==='watch'||!game.episode){
+      if(game.ashGateRecord) memory.ashGateLegacy=game.ashGateRecord;
+      else delete memory.ashGateLegacy;
+    }
     if(game.episode==='orchard') memory.orchardFoundryKeyholder=game.priorOutcome??null;
   }
   if(sessionStorage.emberveilRememberRoom===room&&mine.leader&&mine.unlocked){
@@ -47,6 +52,14 @@ function tableOptions(){
 }
 $('host-mode').onchange=tableOptions;
 $('ranked').onchange=tableOptions;
+$('begin-campaign').onclick=()=>{
+  $('host-mode').value='coop';
+  $('host-episode').value='watch';
+  $('host-chapter').checked=true;
+  $('host-chapter').onchange();
+  tableOptions();
+  $('host-name').focus();
+};
 const teamName=(mode,team)=>mode==='coop'?(team===1?'Sentinels':'Adventurers'):(team===1?'Moon team':'Sun team');
 const sameSide=(a,b)=>game.mode&&game.mode!=='ffa'&&a.team===b.team;
 $('guest-code').value=requested;
@@ -112,6 +125,42 @@ function treePanel(mine, active){
   }).join('');
   return `<section class="field tree-panel"><h2>Ability Tree · ${mine.growth} growth</h2>${branches}<small>Gain 1 growth every three turns at the table. Choose a path and unlock nodes on your turn.</small></section>`;
 }
+const ashGateVoices={
+  tala:'They sealed this road while it was still full of people.',
+  vael:'Some of these names are still inside my shield.',
+  neri:'The names are gone from the stone. I can still hear them.',
+  sylva:'The roots found a way under this grate. So will we.',
+  orrun:'I know this hinge. It was never meant to lock from both sides.',
+  iskar:'The harbor was still when they brought the last family here.',
+  sera:'I stood on this side of the grate. I remember who was on the other.',
+  cass:'Both houses asked my name when I arrived. Who asked theirs?'
+};
+
+function ashGateScene(){
+  const votes=game.ashGateVotes;
+  const chosen=ashGateApproaches[votes[0]];
+  const {leader}=game.players[game.seat];
+  const choices=Object.entries(ashGateApproaches).map(([approach,info])=>{
+    const count=Object.values(votes).filter(vote=>vote===approach).length;
+    return `<button type="button" class="ash-gate-choice" data-action="ash-gate-choice" data-approach="${approach}" aria-pressed="${votes[game.seat]===approach}" ${busy?'disabled':''}>
+      <strong>${info.label}</strong><span>${info.consequence}</span><small>${count} ${count===1?'vote':'votes'}</small></button>`;
+  }).join('');
+  const response=chosen?chosen.reply:game.seat===0?'Hear Iven out, then choose how the party enters.':'Tell the host which approach you favor.';
+  return `<section class="ash-gate field story" aria-labelledby="ash-gate-title">
+    <div class="ash-gate-setting"><h2 id="ash-gate-title">At the Ash Gate</h2><p>Beyond the grate, the Dawnward is going out. Iven stands at his old post with a worn shield and the order that sealed the vault.</p></div>
+    <div class="ash-gate-conversation"><p><strong>Iven</strong> “I was told to keep the people safe until dawn. Nobody told me what to do when dawn came.”</p>
+      ${leader?`<p><strong>${escape(cards[leader].name)}</strong> “${ashGateVoices[leader]}”</p>`:''}
+      <details data-dialogue="names"><summary>Ask whose names were erased</summary><p>“People the houses would not claim. I wrote them on the order. The clerk scraped them off.”</p></details>
+      <details data-dialogue="oath"><summary>Ask why Iven stayed</summary><p>“I heard them knocking after the last bell. I could leave the post. I could not leave the sound.”</p></details>
+    </div>
+    <p>Vote on an approach. The host makes the final choice.</p>
+    <div class="ash-gate-choices">${choices}</div>
+    <p class="ash-gate-response" role="status">${response}</p>
+    ${game.seat===0?`<button class="gold" data-action="start" ${chosen&&game.readyToStart&&!busy?'':'disabled'}>Enter the Watch</button>`:''}
+    <p class="ash-gate-objective">Defeat the Sentinels to open the vault. Spend ${wardCost} mana on your turn to restore a Dawnward mark.</p>
+  </section>`;
+}
+
 function accordPanel(active){
   const {story,difficulty}=game;
   const mine=game.players[game.seat];
@@ -143,7 +192,8 @@ function accordPanel(active){
           ${story?`<button class="outline" data-action="fortify" data-gate="${gate}" ${available?'':'disabled'}>Fortify · ${info.cost} mana${guard?' · '+cards[guard.kind].name:''}</button>`:''}`;
       }).join('')}`;
   }
-  return `<section class="field story" aria-label="Match story"><h2>${heading}</h2><p>${passage}</p>${controls}</section>`;
+  const recalled=ashGateLegacies[game.ashGateLegacy]?.accord;
+  return `<section class="field story" aria-label="Match story"><h2>${heading}</h2><p>${passage}</p>${!finished&&recalled?`<p class="ash-gate-record">${recalled}</p>`:''}${controls}</section>`;
 }
 function escortPanel(active){
   const {story,difficulty,priorOutcome}=game;
@@ -831,7 +881,9 @@ function storyPanel(active=false){
     passage+=' Defeat the Sentinels to open the vault. You can spend 2 mana on your turn to restore a Dawnward mark.';
     if(watch) objective=`<p>${watch.label} · The Watch pulses every ${watch.interval} turns of the first living Sentinel. Restore all three marks to silence it.</p>`;
   }
-  return `<section class="field story" aria-label="Match story"><h2>${heading}</h2><p>${passage}</p>${objective}</section>`;
+  const gateAnswer=ashGateApproaches[game.ashGateVotes?.[0]];
+  const gateMemory=ashGateLegacies[game.ashGateRecord]?.watch??gateAnswer?.reply;
+  return `<section class="field story" aria-label="Match story"><h2>${heading}</h2><p>${passage}</p>${objective}${gateMemory?`<p class="ash-gate-record">${gateMemory}</p>`:''}</section>`;
 }
 function tablePanel(active){
   if(!game.objective) return '';
@@ -885,16 +937,18 @@ function viewState(combat,blocking,reacting,mine){
 }
 function renderBattlefield(markup){
   const scrollPositions=new Map([...arena.querySelectorAll('[data-scroll]')].map(node=>[node.dataset.scroll,[node.scrollLeft,node.scrollTop]]));
+  const openQuestions=new Set([...arena.querySelectorAll('[data-dialogue][open]')].map(node=>node.dataset.dialogue));
   const focus=document.activeElement;
   let focusSelector='';
   if(arena.contains(focus)){
     if(focus.id) focusSelector='#'+CSS.escape(focus.id);
     else{
-      const keys=['id','zone','action','panel','opponent','branch','gate','choice','job','holder','plot','route','scroll'].filter(key=>focus.dataset[key]!==undefined);
+      const keys=['id','zone','action','panel','opponent','branch','gate','choice','job','holder','plot','route','scroll','approach'].filter(key=>focus.dataset[key]!==undefined);
       focusSelector=keys.map(key=>`[data-${key}="${CSS.escape(focus.dataset[key])}"]`).join('');
     }
   }
   arena.innerHTML=markup;
+  for(const question of arena.querySelectorAll('[data-dialogue]')) question.open=openQuestions.has(question.dataset.dialogue);
   if(focusSelector) arena.querySelector(focusSelector)?.focus({preventScroll:true});
   for(const node of arena.querySelectorAll('[data-scroll]')){
     const offset=scrollPositions.get(node.dataset.scroll);
@@ -914,7 +968,7 @@ function render(){
     const roster=game.players.map((p,i)=>`<li>${escape(p.name)}${game.mode&&game.mode!=='ffa'?' · '+teamName(game.mode,p.team):''}${p.leader?' · '+cards[p.leader].name:''}${i===0?' · Host':''}${i===game.seat?' · You':''}</li>`).join('');
     const requirements=game.mode==='teams'?'Team PvP starts with four or six players. Teams alternate by join order.':game.mode==='coop'?`This match includes ${game.botCount} Sentinel bots.`:'At least two players are needed.';
     const opening=game.rules>=3?`<h2>Opening hand</h2><div class="cards">${mine.hand.map(unit=>card(unit,'hand',false)).join('')}</div><button class="outline" data-action="redraw" ${mine.redrawn||busy?'disabled':''}>${mine.redrawn?'Opening hand redrawn':'Redraw opening hand once'}</button>`:'';
-    arena.innerHTML=`<section class="panel waiting"><h1>${game.ranked?'Ranked FFA rules':modes[game.mode]||'Match lobby'}</h1><p>Share your invite link or room code with friends.</p><strong class="code">${room}</strong><div class="actions"><button class="outline" data-action="copy">Copy invite link</button>${game.seat===0?`<button class="gold" data-action="start" ${game.readyToStart&&!busy?'':'disabled'}>Start match</button>`:''}</div><h2>${game.players.length} of ${game.humanLimit||MAX_PLAYERS} player seats</h2><ol class="roster">${roster}</ol><p id="status" role="status">${escape(error||(game.seat!==0?'Waiting for the host to start.':!game.readyToStart||game.mode==='coop'?requirements:''))}</p>${storyPanel()}${opening}<a href="/">Back to lobby</a></section>`;
+    renderBattlefield(`<section class="panel waiting"><h1>${game.chapter?chapters[game.episode??'watch'].title:game.ranked?'Ranked FFA rules':modes[game.mode]||'Match lobby'}</h1><p>Share your invite link or room code with friends.</p><strong class="code">${room}</strong><div class="actions"><button class="outline" data-action="copy">Copy invite link</button>${game.seat===0&&!game.ashGateVotes?`<button class="gold" data-action="start" ${game.readyToStart&&!busy?'':'disabled'}>Start match</button>`:''}</div><h2>${game.players.length} of ${game.humanLimit||MAX_PLAYERS} player seats</h2><ol class="roster">${roster}</ol><p id="status" role="status">${escape(error||(game.seat!==0?'Waiting for the host to start.':!game.readyToStart||game.mode==='coop'?requirements:''))}</p>${game.ashGateVotes?ashGateScene():storyPanel()}${opening}<a href="/">Back to lobby</a></section>`);
     return;
   }
   const mine=game.players[game.seat];
@@ -1083,7 +1137,7 @@ async function enterFromForm(event,create){
     const remember=$(create?'host-remember':'guest-remember').checked;
     const state=await api(code,{type:create?'create':'join',mode:$('host-mode').value,botCount:Number($('host-bots').value),
       chapter:$('host-chapter').checked,episode,difficulty:$('watch-difficulty').value,
-      priorOutcome,foundryKeyholder,resume:remember?memory.leaders?.[leader]:undefined,
+      priorOutcome,foundryKeyholder,ashGateLegacy:episode==='accord'?memory.ashGateLegacy:undefined,resume:remember?memory.leaders?.[leader]:undefined,
       ranked:$('host-mode').value==='ffa'&&$('ranked').checked,privateTable:$('private-table').checked,leaderDamage:$('leader-damage').checked,turnSeconds:Number($('host-timer').value),
       name:$(create?'host-name':'guest-name').value,leader});
     if(remember&&state.mode==='coop') sessionStorage.emberveilRememberRoom=state.code;
@@ -1145,6 +1199,7 @@ arena.onclick=async event=>{
     try{
       const state=await api('CREATE',{type:'create',mode:'coop',chapter:true,episode:button.dataset.episode,leader:mine.leader,name:mine.name,
         foundryKeyholder:action==='next-chapter'&&game.episode==='orchard'?game.priorOutcome:game.foundryKeyholder,
+        ashGateLegacy:action==='next-chapter'&&game.episode==='watch'?game.ashGateRecord:game.ashGateLegacy,
         botCount:game.botCount,difficulty:game.difficulty,turnSeconds:game.turnSeconds,priorOutcome:action==='next-chapter'?game.chapterOutcome:game.priorOutcome,
         resume:remember?readMemory().leaders?.[mine.leader]:undefined});
       if(remember) sessionStorage.emberveilRememberRoom=state.code;
@@ -1177,6 +1232,7 @@ arena.onclick=async event=>{
   if(action==='proposeTruce') await move({type:action,opponent:Number(opponent)});
   if(['acceptTruce','declineTruce','contestObjective'].includes(action)) await move({type:action});
   if(action==='rekindle') await move({type:'rekindle'});
+  if(action==='ash-gate-choice') await move({type:action,approach:button.dataset.approach});
   if(action==='redraw') await move({type:'redraw'});
   if(action==='unlock') await move({type:'unlock',branch});
   if(action==='blocks'){

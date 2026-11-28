@@ -1,6 +1,7 @@
 export const cards = {
   scout: {name:'Cinder Scout', cost:1, power:2, hp:1, icon:'♞'},
   guard: {name:'Oathkeeper', cost:2, power:2, hp:3, icon:'⛨'},
+  watchkeeper: {name:'Iven, Watchkeeper', cost:2, power:2, hp:3, art:'guard', icon:'⛨'},
   wolf: {name:'Ashfang Wolf', cost:3, power:4, hp:2, icon:'♜'},
   knight: {name:'Hollow Knight', cost:4, power:4, hp:4, icon:'⚔'},
   drake: {name:'Ember Drake', cost:5, power:6, hp:4, icon:'♛'},
@@ -202,6 +203,35 @@ export const lore={
   teams:{title:'The Broken Accord',intro:'Two houses arrive to claim the keys to the dormant citadel. Sun invokes the people it once sheltered. Moon invokes the promise that its gates would never belong to one ruler.'},
   ffa:{title:'The Claimants’ Court',intro:'The citadel’s last keeper left no heir. Each leader has come to press a claim, and the basalt court will remember who stood there at dawn.'}
 };
+export const ashGateApproaches={
+  keeper:{label:'Ask Iven to open the grate',reply:'Iven unhooks his shield. “When I lift the grate, the Watch will hear.”',
+    consequence:'Iven starts on the host’s battlefield as a 2 / 3 creature. The first Watch pulse comes one Watch turn sooner.'},
+  names:{label:'Read the erased names',reply:'Iven lowers his head as you read. At the foot of the stair, a brazier catches.',
+    consequence:'Begin with one Dawnward mark restored. Iven stays at the grate.'}
+};
+
+export const ashGateLegacies={
+  'keeper-returned':{watch:'Iven comes up the stair with you. He leaves the grate open.',
+    accord:'Iven meets you at the split gate. He starts on the host’s battlefield as a 2 / 3 creature.'},
+  'keeper-fallen':{watch:'Iven’s shield lies at the foot of the stair.',
+    accord:'A runner brings Iven’s shield to the gate. Someone has scratched the names he sheltered into its rim.'},
+  'keeper-separated':{watch:'Iven holds the lower passage as you retreat. The grate closes between you.',
+    accord:'Iven sent word from below. He is still holding the passage.'},
+  'names-carried':{watch:'The people from the vault ask you to write the names down.',
+    accord:'A runner recognizes the names you bring and hands over a route through the court. The host starts with one extra card.'},
+  'names-scattered':{watch:'The names fade beneath the sound of the closing grate.',
+    accord:'Someone behind the gate repeats the first name you read. No one can remember the next.'}
+};
+
+export function ashGateCarryover(legacy, priorOutcome){
+  if(typeof legacy!=='string'||!Object.hasOwn(ashGateLegacies,legacy)) return undefined;
+  const won=priorOutcome==='ward-restored'||priorOutcome==='lantern';
+  const lost=priorOutcome==='ward-restored-loss'||priorOutcome==='vault-lost';
+  if(legacy==='keeper-fallen') return won||lost?legacy:undefined;
+  const rescued=legacy==='keeper-returned'||legacy==='names-carried';
+  return (rescued?won:lost)?legacy:undefined;
+}
+
 export const chapters={
   watch:{title:lore.coop.title,revision:1,next:'accord',outcomes:['ward-restored','ward-restored-loss','lantern','vault-lost']},
   accord:{title:lore.accord.title,revision:1,next:'missing-names',outcomes:['sun','moon','column','gates-fell']},
@@ -1286,8 +1316,50 @@ function summonSprites(p,count){
   }
   return first;
 }
+function placeWatchkeeper(host){
+  const id=crypto.randomUUID();
+  host.board.push({kind:'watchkeeper',id,hp:maxHp(host,{kind:'watchkeeper'}),ready:false});
+  return id;
+}
+
+function applyAshGateOpening(game){
+  const host=game.players[0];
+  if(game.episode==='watch'&&game.ashGate){
+    const approach=game.ashGate.votes[0];
+    if(approach==='keeper'){
+      game.ashGate.keeper=placeWatchkeeper(host);
+      game.story.pulseIn=Math.max(1,game.story.pulseIn-1);
+      game.last='Iven joins the party. The first Watch pulse comes sooner.';
+    }else if(approach==='names'){
+      game.story.marks=1;
+      game.last='The first Dawnward mark lights as you read the names.';
+    }
+  }
+  if(game.episode==='accord'){
+    if(game.ashGateLegacy==='keeper-returned') placeWatchkeeper(host);
+    if(game.ashGateLegacy==='names-carried') drawCard(host);
+  }
+}
+
+function ashGateRecord(game){
+  if(game.winner==null||!game.ashGate) return undefined;
+  const won=!game.players[game.winner].bot;
+  if(game.ashGate.votes[0]==='names') return won?'names-carried':'names-scattered';
+  if(game.ashGate.votes[0]==='keeper'){
+    const stands=game.players[0].board.some(unit=>unit.id===game.ashGate.keeper);
+    return stands?(won?'keeper-returned':'keeper-separated'):'keeper-fallen';
+  }
+}
+
 export function act(game, seat, data){
   game.effect=null;
+  if(data.type==='ash-gate-choice'){
+    if(hasStarted(game)||!game.ashGate||typeof data.approach!=='string'||!Object.hasOwn(ashGateApproaches,data.approach)){
+      throw Error('That answer is unavailable at the Ash Gate.');
+    }
+    game.ashGate.votes[seat]=data.approach;
+    return;
+  }
   if(data.type==='redraw'){
     const p=game.players[seat];
     if(game.rules<3||hasStarted(game)||p.redrawn) throw Error('Your opening redraw is unavailable.');
@@ -1339,6 +1411,7 @@ export function act(game, seat, data){
       if((!game.episode||game.episode==='watch')&&Object.hasOwn(watchDifficulties,game.difficulty)) game.story.pulseIn=watchDifficulties[game.difficulty].interval;
     }
     beginTurn(game);
+    applyAshGateOpening(game);
     return;
   }
   if(!hasStarted(game) || game.winner!==null) throw Error('There is no active match.');
@@ -1761,6 +1834,7 @@ export function view(game, seat, revision){
   return {revision,seat,ranked:game.ranked,teamsPolitics:game.teamsPolitics,privateTable:game.privateTable,leaderDamageEnabled:game.leaderDamageEnabled,
     threat:tableThreat(game),objective:game.objective,truce:game.truce,truceOfferedTurn:game.truceOfferedTurn,chapter:game.chapter,
     episode:game.episode,chapterRevision:game.chapterRevision,difficulty:game.difficulty,priorOutcome:game.priorOutcome,foundryKeyholder:game.foundryKeyholder,chapterOutcome:chapterOutcome(game),
+    ashGateVotes:game.ashGate?.votes,ashGateRecord:ashGateRecord(game),ashGateLegacy:game.ashGateLegacy,
     record:game.record?.reader===seat?game.record:undefined,story:game.story,mode:game.mode,botCount:game.botCount,turnDeadline:game.turnDeadline,turnSeconds:game.turnSeconds,attacked:game.attacked,readyToStart:readyToStart(game),humanLimit:humanLimit(game),rules:game.rules,combat:visibleCombat,effect:game.effect,started:hasStarted(game),active:game.active,round:game.round,winner:game.winner,last:game.last,
     players:game.players.map((p,i)=>({name:p.name,team:p.team,bot:p.bot,redrawn:p.redrawn,life:p.life,leaderDamage:game.leaderDamageEnabled?Object.values(p.leaderDamage??{}):undefined,mana:p.mana,max:p.max,leader:p.leader,leaderCost:p.leader?leaderCost(p):undefined,eliminated:!!p.eliminated,board:p.board,
       hand:i===seat?p.hand:undefined,choice:i===seat&&p.choice?{type:p.choice,cards:p.deck.slice(0,p.choice==='oracle'?1:2)}:undefined,handSize:p.hand.length,deckSize:p.deck.length,growth:p.growth||0,tree:p.tree,playedCreatureLastTurn:p.playedCreatureLastTurn,earlyReactionPlayed:p.earlyReactionPlayed,recordRead:i===seat?p.recordRead:undefined,unlocked:p.unlocked||0}))};

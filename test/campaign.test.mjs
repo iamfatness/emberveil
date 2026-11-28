@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { act, expireCombat, player, view } from '../src/game.mjs';
+import { act, ashGateCarryover, expireCombat, player, view } from '../src/game.mjs';
 
 function chapter(difficulty, episode, priorOutcome, foundryKeyholder) {
   const game = {
@@ -69,6 +69,31 @@ test('an older chapter stays playable without a pulse countdown', () => {
   }
   assert.equal(game.story.pulseIn, undefined);
   assert.equal(game.players[0].life, 20);
+});
+
+test('the Ash Gate result follows what happened to Iven and the names into the next battle', () => {
+  for(const {approach,fallen,record} of [
+    {approach:'keeper',fallen:false,record:'keeper-returned'},
+    {approach:'keeper',fallen:true,record:'keeper-fallen'},
+    {approach:'names',fallen:false,record:'names-carried'}
+  ]){
+    const setup=episode=>({
+      chapter:true,episode,difficulty:'standard',mode:'coop',botCount:1,rules:3,started:false,
+      active:0,round:1,turnSeconds:90,winner:null,players:[{...player('Rescuer','test'),team:0}]
+    });
+    const watch={...setup('watch'),ashGate:{votes:{}}};
+    act(watch,0,{type:'ash-gate-choice',approach});
+    act(watch,0,{type:'start'});
+    if(fallen) watch.players[0].board=[];
+    act(watch,1,{type:'concede'});
+    const result=view(watch,0,3);
+    assert.equal(result.chapterOutcome,'lantern');
+    assert.equal(result.ashGateRecord,record);
+    const next={...setup('accord'),ashGateLegacy:ashGateCarryover(result.ashGateRecord,result.chapterOutcome)};
+    act(next,0,{type:'start'});
+    assert.equal(next.players[0].board.some(unit=>unit.kind==='watchkeeper'),record==='keeper-returned');
+    assert.equal(next.players[0].hand.length,record==='names-carried'?6:5);
+  }
 });
 
 test('the Accord commits the team to one gate and rewards holding it', () => {

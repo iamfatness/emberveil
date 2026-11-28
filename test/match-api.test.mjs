@@ -121,6 +121,50 @@ test('the Watch remembers a restored ward after defeat and The Broken Accord use
   assert.equal(next.data.priorOutcome,'ward-restored-loss');
 });
 
+test('the Ash Gate shares co-op votes and locks the host’s approach when the Watch starts',async()=>{
+  const call=matchApi(),host=crypto.randomUUID(),guest=crypto.randomUUID();
+  const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'watch',difficulty:'veteran',botCount:1});
+  assert.deepEqual(room.ashGateVotes,{});
+  const {data:joined}=await call(room.code,guest,{type:'join',leader:'neri'});
+  const suggest=await call(room.code,guest,{type:'ash-gate-choice',approach:'names',revision:joined.revision});
+  assert.equal(suggest.status,200);
+  const hostView=await call(room.code,host);
+  assert.deepEqual(hostView.data.ashGateVotes,{1:'names'});
+  const invalid=await call(room.code,host,{type:'ash-gate-choice',approach:['keeper'],revision:suggest.data.revision});
+  assert.equal(invalid.status,400);
+  const choose=await call(room.code,host,{type:'ash-gate-choice',approach:'keeper',revision:suggest.data.revision});
+  const start=await call(room.code,host,{type:'start',revision:choose.data.revision});
+  assert.equal(start.status,200);
+  assert.equal(start.data.story.marks,0);
+  assert.equal(start.data.story.pulseIn,2);
+  assert.equal(start.data.players[0].board[0].kind,'watchkeeper');
+  assert.equal(start.data.players[0].board[0].ready,false);
+  assert.deepEqual(start.data.players[1].board,[]);
+  const late=await call(room.code,guest,{type:'ash-gate-choice',approach:'keeper',revision:start.data.revision});
+  assert.equal(late.status,400);
+  assert.deepEqual((await call(room.code,guest)).data.ashGateVotes,{0:'keeper',1:'names'});
+});
+
+test('reading the names lights a mark and a loss carries the account without a starting bonus',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  const {data:room}=await call('create',host,{type:'create',mode:'coop',chapter:true,episode:'watch',botCount:1});
+  const choose=await call(room.code,host,{type:'ash-gate-choice',approach:'names',revision:room.revision});
+  const start=await call(room.code,host,{type:'start',revision:choose.data.revision});
+  assert.equal(start.data.story.marks,1);
+  assert.equal(start.data.story.pulseIn,4);
+  assert.deepEqual(start.data.players[0].board,[]);
+  const lost=await call(room.code,host,{type:'concede',revision:start.data.revision});
+  assert.equal(lost.data.chapterOutcome,'vault-lost');
+  assert.equal(lost.data.ashGateRecord,'names-scattered');
+  const create={type:'create',mode:'coop',chapter:true,episode:'accord',botCount:1,priorOutcome:lost.data.chapterOutcome};
+  const next=await call('create',host,{...create,ashGateLegacy:lost.data.ashGateRecord});
+  assert.equal(next.data.ashGateLegacy,'names-scattered');
+  const nextStart=await call(next.data.code,host,{type:'start',revision:next.data.revision});
+  assert.equal(nextStart.data.players[0].hand.length,5);
+  const mismatch=await call('create',host,{...create,ashGateLegacy:'names-carried'});
+  assert.equal(mismatch.data.ashGateLegacy,undefined);
+});
+
 test('all five chapters start in order and accept only outcomes from the preceding chapter',async()=>{
   const call=matchApi();
   const host=crypto.randomUUID();
