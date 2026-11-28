@@ -485,3 +485,53 @@ body:has(#arena.match-live) {
 #arena .ash-gate .ash-gate-response { margin-block: .7rem; color: #f3d7a4; }
 #arena .ash-gate .ash-gate-objective { margin-block: .65rem 1rem; }
 .story .ash-gate-record { border-inline-start: 2px solid #c39153; padding-inline-start: .65rem; }
+
+#lobby:not(.table-lobby) .hero { min-height: min(72vh, 650px); }
+.hero-actions a { text-decoration: none; }
+.campaign-scene {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  align-items: end;
+  min-height: clamp(280px, 45vh, 480px);
+  background: linear-gradient(90deg, #130f0df2, #130f0d90 62%, transparent),
+    linear-gradient(0deg, #130f0d, transparent 65%), url('/citadel.webp') center 48% / cover;
+  border-bottom: 1px solid #483425;
+}
+.campaign-scene-copy { z-index: 1; width: min(1100px, 100%); margin: 0 auto; padding: 2rem clamp(1rem, 4vw, 2.75rem); }
+.campaign-scene-copy a { color: var(--gold); font-weight: 700; }
+.campaign-scene h1 { margin: .5rem 0; color: #fae3be; font: 600 clamp(2rem, 5vw, 4rem)/1.08 Cinzel, Georgia, serif; }
+.campaign-scene p { margin: .45rem 0; max-width: 66ch; color: #eddfcc; line-height: 1.55; }
+#campaign-recall { margin-top: .95rem; border-inline-start: 2px solid var(--gold); padding-inline-start: .7rem; color: #eac797; }
+.campaign-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  gap: 1.1rem;
+  width: min(1050px, calc(100% - 2rem));
+  margin: 1.2rem auto 2.2rem;
+}
+.campaign-body .panel { min-width: 0; gap: .5rem; }
+.campaign-leader-card { display: grid; grid-template-columns: minmax(72px, 26%) minmax(0, 1fr); align-items: start; gap: .85rem; margin: .3rem 0 .8rem; }
+.campaign-leader-card img { width: 100%; max-height: 170px; aspect-ratio: 4/5; object-fit: cover; border: 1px solid #8d673c; border-radius: .4rem; }
+.campaign-leader-card h2 { margin: 0 0 .45rem; }
+.campaign-leader-card p { margin-bottom: .5rem; }
+.campaign-leader-card .leader-progress { color: var(--gold); }
+.campaign-leader-card ul { margin: .3rem 0 0; padding-inline-start: 1.2rem; color: var(--ink); }
+.campaign-settings { padding: .55rem 0 .8rem; }
+.campaign-settings summary, .campaign-invite summary { color: var(--gold); cursor: pointer; font-weight: 700; }
+.campaign-settings label { display: block; margin-top: .6rem; }
+.campaign-settings select { width: 100%; }
+.campaign-route h2 { margin: 0; }
+.campaign-route ol { max-height: 24rem; overflow: auto; overscroll-behavior: contain; padding: .25rem .35rem .25rem 1.75rem; color: var(--muted); }
+.campaign-route li { margin-block: .2rem; padding: .4rem .5rem; border-radius: .3rem; }
+.campaign-route li[data-progress='recorded'] { color: #e2b982; }
+.campaign-route li[aria-current='step'] { background: #392b20; color: #ffe0aa; font-weight: 700; }
+.campaign-route .quiet { align-self: start; text-decoration: none; }
+.campaign-waiting { max-width: 760px; }
+.campaign-invite { margin: .6rem 0 1rem; border: 1px solid var(--line); border-radius: .4rem; padding: .75rem; }
+.campaign-invite .code { margin: .55rem 0; }
+@media (max-width: 670px) {
+  .campaign-body { grid-template-columns: 1fr; }
+  .campaign-route ol { max-height: 13rem; }
+}
