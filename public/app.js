@@ -4,7 +4,7 @@ import {ashGateApproaches,ashGateLegacies,campaignProgress} from '/game.mjs';
 
 const $=id=>document.getElementById(id);
 const lobby=$('lobby'),arena=$('arena'),campaign=$('campaign');
-const presentation=createPresentation(arena,$('match-effects'));
+const presentation=createPresentation(arena,$('match-effects'),$('match-cue'),cards);
 const key=sessionStorage.emberveilKey||(sessionStorage.emberveilKey=crypto.randomUUID());
 const query=new URL(location.href).searchParams;
 const requested=query.get('room')?.toUpperCase()||'';
@@ -1257,6 +1257,7 @@ async function move(data){
   busy=true;
   error='';
   const previous=game;
+  const positions=presentation.capture();
   try{
     game=await api(room,{...data,revision:game.revision});
     selected=undefined;
@@ -1264,7 +1265,7 @@ async function move(data){
     if(!game.combat) reactionTarget='';
   }catch(reason){error=reason.message;return;}
   finally{busy=false;render();}
-  presentation.play(previous,game);
+  presentation.play(previous,game,positions);
 }
 arena.onclick=async event=>{
   const button=event.target.closest('button');
@@ -1420,6 +1421,7 @@ setInterval(async ()=>{
     const next=await api(room);
     if(!busy&&next.revision>game.revision){
       const previous=game;
+      const positions=presentation.capture();
       if(next.round!==game.round||next.combat?.id!==game.combat?.id||next.winner!==null){
         selected=undefined;
         attackIds=[];
@@ -1428,7 +1430,7 @@ setInterval(async ()=>{
       if(!game.combat) reactionTarget='';
       error='';
       render();
-      if(!watching) presentation.play(previous,next);
+      if(!watching) presentation.play(previous,next,positions);
     }
   }catch{
     if(!busy&&error!=='Connection interrupted. Reconnecting…'){

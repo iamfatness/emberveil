@@ -34,6 +34,22 @@ test('only completed matches have a public, read-only view',async()=>{
   assert.equal((await call(room.code+'?watch=1',host,{type:'end'})).status,405);
 });
 
+test('a Sentinel response keeps every accepted move in sequence without revealing drawn cards',async()=>{
+  const call=matchApi(),host=crypto.randomUUID();
+  const {data:room}=await call('create',host,{type:'create',mode:'coop',botCount:1,chapter:true});
+  const start=await call(room.code,host,{type:'start',revision:room.revision});
+  const end=await call(room.code,host,{type:'end',revision:start.data.revision});
+  assert.equal(end.status,200);
+  const moves=end.data.moves.slice(start.data.moves.length);
+  assert.ok(moves.length>1);
+  assert.equal(moves[0].cue.type,'turn');
+  assert.deepEqual(moves.map(move=>move.id),moves.map((_,i)=>i+start.data.moves.at(-1).id+1));
+  const draws=moves.flatMap(move=>move.effects).filter(effect=>effect.type==='draw');
+  assert.ok(draws.some(effect=>effect.seat===1));
+  assert.ok(draws.every(effect=>effect.kind===undefined&&effect.unit===undefined));
+  assert.deepEqual((await call(room.code,host)).data.moves,end.data.moves);
+});
+
 test('co-op resumes a valid path, remembers the first chapter, and leaves PvP fresh',async()=>{
   const call=matchApi();
   const host=crypto.randomUUID();
